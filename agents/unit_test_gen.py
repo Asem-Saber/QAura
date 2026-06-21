@@ -14,16 +14,15 @@ Pipeline per component:
     6. Validate syntax → retry on failure (up to max_retries)
     7. Verify coverage → flag uncovered symbols against AST
 """
-
 from __future__ import annotations
 
 import ast
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 
+from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
-from langchain_core.output_parsers import PydanticOutputParser, OutputParserException
+from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from config import CONFTEST_PATH, PROJECT_ROOT, get_llm
@@ -35,14 +34,16 @@ from core.state import (
     UnitScopeItem,
 )
 from core.tools import (
+    #codebase_stats,
     discover_collaborators,
+    #index_codebase,
     lookup_existing_fixtures,
     parse_ast,
     read_source_file,
     resolve_module_path,
+    #semantic_search,
     validate_syntax,
 )
-
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -58,7 +59,7 @@ component based on its source code and an AST-derived symbol inventory.
 1. Generate a complete, self-contained pytest test file (with all imports).
 2. Test every public symbol listed in the AST inventory.
 3. Mock ALL external dependencies — no real database, network, file I/O, \
-   time, or randomness.
+ time, or randomness.
 4. For each public symbol, emit at minimum:
    - One happy-path test (normal valid input -> expected output)
    - Boundary tests (empty string, zero, max-length, off-by-one)
@@ -70,12 +71,12 @@ component based on its source code and an AST-derived symbol inventory.
 ## What You Must Not Do
 
 - Do NOT call datetime.now(), uuid.uuid4(), random.random() directly. \
-  Inject all non-determinism through constructor params or fixtures.
+ Inject all non-determinism through constructor params or fixtures.
 - Do NOT mock deep internal call chains (e.g. \
-  mock_db.query.return_value.filter.return_value.first.return_value). \
-  Mock at collaborator boundaries instead.
+ mock_db.query.return_value.filter.return_value.first.return_value). \
+ Mock at collaborator boundaries instead.
 - Do NOT over-specify mocks. Assert on outcomes and collaborator intent, \
-  not on intermediate builder steps.
+ not on intermediate builder steps.
 - Do NOT test private methods (those starting with _) except __init__.
 - Do NOT generate integration tests. This is unit-level only.
 
@@ -89,7 +90,7 @@ Example: test_create_user_duplicate_email_raises_conflict
 - Populate `covered_symbols` with every AST symbol your tests exercise.
 - Populate `test_cases` with metadata for each test function.
 - If shared fixtures would benefit other test files, put them in \
-  `conftest_contribution` (just the @pytest.fixture functions, no imports).
+ `conftest_contribution` (just the @pytest.fixture functions, no imports).
 - If a symbol cannot be tested, explain why in `coverage_notes`.
 """
 
@@ -113,8 +114,8 @@ USER_TEMPLATE = """\
 ## Source Code Under Test
 {source_code}
 
-Generate a complete pytest test file for {component}. The file must be \
-self-contained with all necessary imports. Return structured output \
+Generate a complete pytest test file for {component}. The file must be 
+self-contained with all necessary imports. Return structured output 
 matching the GeneratedTest schema.
 """
 
@@ -126,16 +127,6 @@ The test file you previously generated failed syntax validation.
 
 ## Original Generated Code
 {test_code}
-
-## Original Context (for reference)
-- Component: {component}
-- Module: {module}
-
-## AST Symbol Inventory
-{ast_inventory}
-
-## Source Code Under Test
-{source_code}
 
 Fix the syntax error and return the corrected test file. Keep all test \
 logic intact — only fix what is broken. If the error is in a fixture or \
@@ -245,6 +236,54 @@ def _verify_coverage(test: GeneratedTest, source_code: str) -> List[str]:
     return gaps
 
 # ═══════════════════════════════════════════════════════════════════════
+# Test Case Verification
+# ═══════════════════════════════════════════════════════════════════════
+def _verify_test_cases(test: GeneratedTest) -> list[str]:
+    """Verify that declared test_cases match actual test functions in code.
+
+    Parses the generated test_code and checks that every test name in
+    test_cases exists as a function definition. Also checks for test
+    functions in the code that aren't listed in test_cases.
+
+    Returns a list of warning messages (empty if everything matches).
+    """
+    warnings: list[str] = []
+
+    try:
+        tree = ast.parse(test.test_code)
+    except SyntaxError:
+        # Syntax validation already handles this — skip
+        return warnings
+
+    # Collect actual test function names from the code
+    actual_functions: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name.startswith("test_"):
+                actual_functions.add(node.name)
+
+    # Collect declared test case names
+    declared_names = {tc.name for tc in test.test_cases}
+
+    # Declared but not in code (hallucinated)
+    hallucinated = sorted(declared_names - actual_functions)
+    if hallucinated:
+        warnings.append(
+            f"test_cases lists functions not in code: "
+            f"{', '.join(hallucinated)}"
+        )
+
+    # In code but not declared (undocumented)
+    undocumented = sorted(actual_functions - declared_names)
+    if undocumented:
+        warnings.append(
+            f"Test functions in code but not in test_cases: "
+            f"{', '.join(undocumented)}"
+        )
+
+    return warnings
+
+# ═══════════════════════════════════════════════════════════════════════
 # LLM INVOCATION HELPER
 # ═══════════════════════════════════════════════════════════════════════
 def _invoke_chain(
@@ -334,29 +373,57 @@ def _generate_for_component(
     project_summary: str,
     config: GenerationConfig,
 ) -> GeneratedTest:
-    """Run the complete analytical and LLM generation pipeline for one component."""
+    """Run the full generation pipeline for one component."""
     llm = config.llm or get_llm()
-    
-    # 1. Chain Pre-compilation Optimization
-    generation_chain = _build_generation_chain(llm)
-    retry_chain = _build_retry_chain(llm)
 
-    # 2. Resolve and read source
+    # ── 1. Resolve and read source ──────────────────────────────────
     file_path = resolve_module_path.invoke(
         {"module": item.module, "project_root": config.project_root}
     )
     if file_path.startswith("ERROR"):
         raise FileNotFoundError(file_path)
+
     source_code = read_source_file.invoke({"file_path": file_path})
     logger.debug("Read source: %s (%d chars)", file_path, len(source_code))
-    
-    # 3. Component Boundary Discovery 
-    ast_inventory = parse_ast.invoke({"source_code": source_code, "module_path": item.module})
-    collaborators = discover_collaborators.invoke({"source_code": source_code, "module_path": item.module})
-    existing_fixtures = lookup_existing_fixtures.invoke({"conftest_path": config.conftest_path})
-    
-    # 4. Invoke Generation Chain
-    logger.info("Generating unit tests for %s (%s)", item.component, item.module)
+
+    # ── 2. AST inventory ─────────────────────────────────────────────
+    ast_inventory = parse_ast.invoke(
+        {"source_code": source_code, "module_path": item.module}
+    )
+
+    # ── 3. Collaborator seams ────────────────────────────────────────
+    collaborators = discover_collaborators.invoke(
+        {"source_code": source_code, "module_path": item.module}
+    )
+
+    # ── 4. Existing fixtures ─────────────────────────────────────────
+    existing_fixtures = lookup_existing_fixtures.invoke(
+        {"conftest_path": config.conftest_path}
+    )
+
+    '''
+    # ── 4b. Semantic search for similar code patterns ───────────────
+    similar_code = semantic_search.invoke(
+        {
+            "query": f"tests for {item.component} in {item.module}",
+            "project_root": config.project_root,
+            "k": 3,
+        }
+    )
+    if similar_code.startswith("ERROR"):
+        logger.debug(
+            "Semantic search unavailable for %s: %s",
+            item.component,
+            similar_code,
+        )
+        similar_code = "(semantic search unavailable)"
+    '''
+
+    # ── 5. Invoke LLM ────────────────────────────────────────────────
+    logger.info(
+        "Generating unit tests for %s (%s)", item.component, item.module
+    )
+    generation_chain = _build_generation_chain(llm)
     test = _invoke_chain(
         chain=generation_chain,
         context={
@@ -366,47 +433,83 @@ def _generate_for_component(
             "ast_inventory": ast_inventory,
             "collaborators": collaborators,
             "existing_fixtures": existing_fixtures,
+            "similar_code": similar_code,
             "source_code": source_code,
         },
         component=item.component,
         module=item.module,
         llm=llm,
     )
-    
-    # 5. Syntax Validation Loop
+
+    # ── 6. Syntax validation with retry ──────────────────────────────
     test = _validate_and_retry(
         test=test,
-        generation_chain=generation_chain,
-        retry_chain=retry_chain,
+        llm=llm,
         component=item.component,
         module=item.module,
         ast_inventory=ast_inventory,
         source_code=source_code,
         max_retries=config.max_retries,
-        llm=llm,
     )
-    
-    # 6. Post-generation Automated Audit
+
+    # ── 7. Coverage verification ─────────────────────────────────────
     coverage_gaps = _verify_coverage(test, source_code)
+    test_case_warnings = _verify_test_cases(test)
     existing_notes = test.coverage_notes.strip()
-    gap_text = "\n".join(coverage_gaps)
-    test.coverage_notes = f"{existing_notes}\n{gap_text}".strip() if existing_notes else gap_text
-    
+    all_notes = "\n".join(coverage_gaps + test_case_warnings)
+    test.coverage_notes = (
+        f"{existing_notes}\n{all_notes}".strip()
+        if existing_notes
+        else all_notes
+    )
+
     return test
 
 # ═══════════════════════════════════════════════════════════════════════
 # NODE FUNCTION (LangGraph entry point)
 # ═══════════════════════════════════════════════════════════════════════
 def unit_test_gen_node(
-    state: Dict[str, Any],
+    state: QAuraState,
     config: GenerationConfig | None = None,
-) -> Dict[str, Any]:
-    """LangGraph node: generate unit tests for all components in unit_scope batching."""
+) -> dict:
+    """LangGraph node: generate unit tests for all components in unit_scope.
+
+    Reads:
+        state["test_plan"] — TestPlan with unit_scope list
+
+    Writes:
+        state["unit_tests"] — list[GeneratedTest]
+        state["messages"] — appended progress messages (uses add reducer)
+        state["current_phase"] — set to Phase.GENERATION
+
+    Each component is processed independently. A failure on one does
+    not abort the batch — it's logged and the remaining components
+    still proceed.
+
+    Args:
+        state: LangGraph shared state dict.
+        config: Generation config. If None, uses defaults from env.
+
+    Returns:
+        Partial state dict with `unit_tests`, `messages`, `current_phase`.
+    """
     cfg = config or GenerationConfig()
+
+    # Resolve LLM once — reuse across all components
+    resolved_llm = cfg.llm or get_llm()
+    effective_config = GenerationConfig(
+        llm=resolved_llm,
+        project_root=cfg.project_root,
+        conftest_path=cfg.conftest_path,
+        max_retries=cfg.max_retries,
+        skip_unvalidated=cfg.skip_unvalidated,
+    )
 
     plan: TestPlan | None = state.get("test_plan")
     if plan is None or not plan.unit_scope:
-        logger.info("No unit_scope in test plan — skipping unit test generation.")
+        logger.info(
+            "No unit_scope in test plan — skipping unit test generation."
+        )
         return {
             "unit_tests": [],
             "messages": ["Unit: no unit scope defined, skipped."],
@@ -414,46 +517,90 @@ def unit_test_gen_node(
         }
 
     total = len(plan.unit_scope)
-    logger.info("Starting unit test generation: %d component(s)", total)
+    logger.info(
+        "Starting unit test generation: %d component(s)", total
+    )
 
-    generated: List[GeneratedTest] = []
-    messages: List[str] = []
+    generated: list[GeneratedTest] = []
+    messages: list[str] = []
 
     for idx, item in enumerate(plan.unit_scope, start=1):
-        logger.info("Component %d/%d: %s", idx, total, item.component)
-        messages.append(f"Unit: starting {item.component} ({item.module})")
+        logger.info(
+            "Component %d/%d: %s", idx, total, item.component
+        )
+        messages.append(
+            f"Unit: starting {item.component} ({item.module})"
+        )
 
         try:
             test = _generate_for_component(
                 item=item,
                 project_summary=plan.project_summary,
-                config=cfg,
+                config=effective_config,
             )
 
             if not test.syntax_validated and cfg.skip_unvalidated:
                 messages.append(
-                    f"Unit: SKIPPED {item.component} — failed syntax validation after {cfg.max_retries} retries"
+                    f"Unit: SKIPPED {item.component} — "
+                    f"failed syntax validation after "
+                    f"{cfg.max_retries} retries"
+                )
+                logger.warning(
+                    "Skipping unvalidated test for %s "
+                    "(skip_unvalidated=True)",
+                    item.component,
                 )
                 continue
 
             generated.append(test)
-            messages.append(_format_success_message(test, item.component))
+            messages.append(
+                _format_success_message(test, item.component)
+            )
 
         except FileNotFoundError as e:
-            logger.error("Module not found for %s: %s", item.component, e)
-            messages.append(f"Unit: FAILED {item.component} — module not found: {e}")
-        except OutputParserException as e:
-            logger.error("LLM output parsing failed for %s: %s", item.component, e)
-            messages.append(f"Unit: FAILED {item.component} — LLM output error: {e}")
-        except Exception as e:
-            logger.exception("Unexpected failure for %s", item.component)
-            messages.append(f"Unit: FAILED {item.component} — {type(e).__name__}: {e}")
+            logger.error(
+                "Module not found for %s: %s", item.component, e
+            )
+            messages.append(
+                f"Unit: FAILED {item.component} — "
+                f"module not found: {e}"
+            )
 
-    # Aggregating Execution Results Summary
+        except OutputParserException as e:
+            logger.error(
+                "LLM output parsing failed for %s: %s",
+                item.component,
+                e,
+            )
+            messages.append(
+                f"Unit: FAILED {item.component} — "
+                f"LLM output error: {e}"
+            )
+
+        except Exception as e:
+            logger.exception(
+                "Unexpected failure for %s", item.component
+            )
+            messages.append(
+                f"Unit: FAILED {item.component} — "
+                f"{type(e).__name__}: {e}"
+            )
+
+    # Summary
     total_cases = sum(len(t.test_cases) for t in generated)
     validated = sum(1 for t in generated if t.syntax_validated)
     messages.append(
-        f"Unit: generation complete — {len(generated)} file(s), {total_cases} test cases, {validated}/{len(generated)} validated"
+        f"Unit: generation complete — {len(generated)} file(s), "
+        f"{total_cases} test cases, "
+        f"{validated}/{len(generated)} validated"
+    )
+
+    logger.info(
+        "Unit test generation complete: %d files, %d cases, "
+        "%d validated",
+        len(generated),
+        total_cases,
+        validated,
     )
 
     return {
@@ -461,18 +608,6 @@ def unit_test_gen_node(
         "messages": messages,
         "current_phase": Phase.GENERATION,
     }
-
-def _format_success_message(test: GeneratedTest, component: str) -> str:
-    """Build a detailed progress message for a successful generation string."""
-    status = "validated" if test.syntax_validated else "UNVALIDATED"
-    msg = f"Unit: {component} -> {test.file_name} ({len(test.test_cases)} tests, {len(test.covered_symbols)} symbols, {status})"
-    
-    if test.coverage_notes and "Uncovered symbols:" in test.coverage_notes:
-        for line in test.coverage_notes.split("\n"):
-            if "Uncovered symbols:" in line:
-                msg += f" | {line}"
-                break
-    return msg
 
 # convenience_wrapper.py
 

@@ -1,0 +1,31 @@
+    QAura/
+├── agents/
+│   ├── __init__.py
+│   ├── unit_test_gen.py          # The agent: prompt, chain, node, retry
+│   └── test_writer.py            # Utility: write GeneratedTest objects to disk
+├── core/
+│   ├── __init__.py
+│   ├── state.py                  # Schemas + state (unit-relevant subset)
+│   └── tools.py                  # Tools (unit-relevant subset)
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py               # Shared fixtures for QAura's own test suite
+│   ├── test_unit_gen.py          # Tests for the agent logic
+│   └── test_tools.py             # Tests for the tool functions
+├── examples/
+│   └── run_unit_gen.py           # Standalone CLI demo
+└── config.py                     # Logging + LLM factory
+
+flowchart TD
+    A["Project Root"] --> B["index_codebase tool"]
+    B --> C["Load .py files (LanguageParser)"]
+    B --> D["Load .html files (TextLoader)"]
+    B --> E["Load .js/.ts files (TextLoader)"]
+    C --> F["Split (language-aware)"]
+    D --> F
+    E --> F
+    F --> G["OllamaEmbeddings"]
+    G --> H["Chroma Vectorstore (persisted)"]
+    H --> I["semantic_search tool"]
+    I --> J["Unit Test Generator"]
+    J --> K["Uses results as LLM context"]
