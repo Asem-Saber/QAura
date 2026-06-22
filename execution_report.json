@@ -1,0 +1,29 @@
+{
+    "execution_summary": {
+        "total_tests": 2,
+        "passed": 1,
+        "failed": 1,
+        "skipped": 0,
+        "execution_duration_ms": 8110.423803329468
+    },
+    "coverage_confidence": {
+        "overall_confidence": 0.5,
+        "component_scores": [
+            {
+                "component": "all",
+                "score": 0.5
+            }
+        ],
+        "identified_gaps": []
+    },
+    "anomalies": [
+        {
+            "anomaly_id": "29192886-210c-43e7-9f2e-a70b2fee54e8",
+            "test_id": "test_orders_mock.py",
+            "affected_component": "orders",
+            "classification": "APPLICATION_DEFECT",
+            "root_cause_hypothesis": "Agent classified failure as APPLICATION_DEFECT.",
+            "stack_trace": "============================= test session starts =============================\nplatform win32 -- Python 3.14.3, pytest-9.1.0, pluggy-1.6.0 -- C:\\Python314\\python.exe\ncachedir: .pytest_cache\nrootdir: C:\\Users\\Aya Elsheshtawy\\Desktop\\NTI-Final Project\\QAura\nplugins: anyio-4.13.0, langsmith-0.8.18, mock-3.15.1\ncollecting ... collected 1 item\n\ntests/test_orders_mock.py::test_order FAILED                             [100%]\n\n================================== FAILURES ===================================\n_________________________________ test_order __________________________________\n\n>   def test_order(): assert False, 'Simulated failure'\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AssertionError: Simulated failure\nE   assert False\n\ntests\\test_orders_mock.py:1: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/test_orders_mock.py::test_order - AssertionError: Simulated failure\n============================== 1 failed in"
+        }
+    ]
+}
