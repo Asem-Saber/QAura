@@ -16,6 +16,7 @@ from agents.planning_agent import test_architect_node, hitl_approval_node
 from agents.unit_test_gen import unit_test_gen_node
 from agents.integration_test_gen import integration_gen_node
 from agents.e2e_test_gen import e2e_gen_node
+from agents.execution_agent import execution_agent_node
 
 load_dotenv()
 
@@ -26,6 +27,7 @@ builder.add_node("human_approval", hitl_approval_node)
 builder.add_node("unit_test_gen", unit_test_gen_node)
 builder.add_node("integration_gen", integration_gen_node)
 builder.add_node("e2e_gen", e2e_gen_node)
+builder.add_node("execution", execution_agent_node)
 
 builder.add_edge(START, "test_architect")
 builder.add_edge("test_architect", "human_approval")
@@ -41,9 +43,10 @@ builder.add_conditional_edges(
     ["unit_test_gen", "integration_gen", "e2e_gen", END]
 )
 
-builder.add_edge("unit_test_gen", END)
-builder.add_edge("integration_gen", END)
-builder.add_edge("e2e_gen", END)
+builder.add_edge("unit_test_gen", "execution")
+builder.add_edge("integration_gen", "execution")
+builder.add_edge("e2e_gen", "execution")
+builder.add_edge("execution", END)
 memory = MemorySaver()
 
 graph = builder.compile(checkpointer=memory)

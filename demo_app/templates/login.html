@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - QAura Demo Store</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .login-card { background: white; border-radius: 8px; padding: 2rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); width: 100%; max-width: 400px; }
+        .login-card h2 { margin-bottom: 1.5rem; text-align: center; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; margin-bottom: 0.25rem; font-weight: 500; font-size: 0.9rem; }
+        .form-group input { width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem; }
+        .form-group input:focus { outline: none; border-color: #1a1a2e; }
+        .btn { width: 100%; padding: 0.75rem; background: #1a1a2e; color: white; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; margin-top: 0.5rem; }
+        .btn:hover { background: #16213e; }
+        .tabs { display: flex; margin-bottom: 1.5rem; }
+        .tab { flex: 1; padding: 0.5rem; text-align: center; cursor: pointer; border-bottom: 2px solid #eee; }
+        .tab.active { border-bottom-color: #1a1a2e; font-weight: bold; }
+        #error-message { color: #c62828; font-size: 0.9rem; margin-top: 0.5rem; display: none; }
+        #success-message { color: #2e7d32; font-size: 0.9rem; margin-top: 0.5rem; display: none; }
+        .register-form { display: none; }
+    </style>
+</head>
+<body>
+    <div class="login-card" data-testid="login-card">
+        <h2>QAura Demo Store</h2>
+
+        <div class="tabs">
+            <div class="tab active" data-testid="login-tab" onclick="showLogin()">Login</div>
+            <div class="tab" data-testid="register-tab" onclick="showRegister()">Register</div>
+        </div>
+
+        <!-- Login Form -->
+        <form id="login-form" data-testid="login-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label for="login-email">Email</label>
+                <input type="email" id="login-email" data-testid="login-email" placeholder="Enter your email" required>
+            </div>
+            <div class="form-group">
+                <label for="login-password">Password</label>
+                <input type="password" id="login-password" data-testid="login-password" placeholder="Enter your password" required>
+            </div>
+            <button type="submit" class="btn" data-testid="login-submit">Login</button>
+        </form>
+
+        <!-- Register Form -->
+        <form id="register-form" class="register-form" data-testid="register-form" onsubmit="handleRegister(event)">
+            <div class="form-group">
+                <label for="reg-name">Full Name</label>
+                <input type="text" id="reg-name" data-testid="register-name" placeholder="Enter your name" required>
+            </div>
+            <div class="form-group">
+                <label for="reg-email">Email</label>
+                <input type="email" id="reg-email" data-testid="register-email" placeholder="Enter your email" required>
+            </div>
+            <div class="form-group">
+                <label for="reg-password">Password</label>
+                <input type="password" id="reg-password" data-testid="register-password" placeholder="Choose a password" required>
+            </div>
+            <button type="submit" class="btn" data-testid="register-submit">Register</button>
+        </form>
+
+        <p id="error-message" data-testid="error-message"></p>
+        <p id="success-message" data-testid="success-message"></p>
+    </div>
+
+    <script>
+        function showLogin() {
+            document.getElementById('login-form').style.display = 'block';
+            document.getElementById('register-form').style.display = 'none';
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('[data-testid="login-tab"]').classList.add('active');
+        }
+
+        function showRegister() {
+            document.getElementById('login-form').style.display = 'none';
+            document.getElementById('register-form').style.display = 'block';
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('[data-testid="register-tab"]').classList.add('active');
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+
+            const errEl = document.getElementById('error-message');
+            if (res.ok) {
+                const data = await res.json();
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+                window.location.href = '/dashboard';
+            } else {
+                const err = await res.json();
+                errEl.textContent = err.detail || 'Login failed';
+                errEl.style.display = 'block';
+            }
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const name = document.getElementById('reg-name').value;
+            const email = document.getElementById('reg-email').value;
+            const password = document.getElementById('reg-password').value;
+
+            const res = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password, name })
+            });
+
+            const errEl = document.getElementById('error-message');
+            const successEl = document.getElementById('success-message');
+
+            if (res.ok) {
+                successEl.textContent = 'Registration successful! You can now login.';
+                successEl.style.display = 'block';
+                errEl.style.display = 'none';
+                showLogin();
+            } else {
+                const err = await res.json();
+                errEl.textContent = err.detail || 'Registration failed';
+                errEl.style.display = 'block';
+                successEl.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

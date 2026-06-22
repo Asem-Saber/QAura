@@ -40,6 +40,32 @@ class E2ETestOutput(BaseModel):
     tests: List[GeneratedTest] = Field(description="List of generated E2E/security test files")
     user_flows_covered: list[str] = Field(description="User flows automated in E2E tests")
 
+class ExecutionSummary(BaseModel):
+    total_tests: int = Field(0, description="Total tests executed")
+    passed: int = Field(0, description="Number of passed tests")
+    failed: int = Field(0, description="Number of failed tests")
+    skipped: int = Field(0, description="Number of skipped/blocked tests")
+    flaky_tests: int = Field(0, description="Number of tests that passed on retry")
+    execution_duration_ms: float = Field(0.0, description="Total duration in milliseconds")
+
+class CoverageComponentScore(BaseModel):
+    component: str
+    score: float = Field(description="Confidence score from 0.0 to 1.0")
+
+class CoverageConfidence(BaseModel):
+    overall_confidence: float = Field(0.0, description="Overall confidence score from 0.0 to 1.0")
+    component_scores: List[CoverageComponentScore] = Field(default_factory=list)
+    identified_gaps: List[str] = Field(default_factory=list)
+
+class AnomalyReport(BaseModel):
+    anomaly_id: str
+    test_id: str
+    affected_component: str
+    classification: Literal['INFRASTRUCTURE', 'APPLICATION_DEFECT', 'TEST_SCRIPT_DECAY', 'AGENT_ERROR']
+    root_cause_hypothesis: str
+    stack_trace: str | None = None
+    evidence_urls: dict | None = None
+
 class QAuraState(TypedDict):
     requirements_path: str
     test_plan: TestPlan | None
@@ -48,3 +74,6 @@ class QAuraState(TypedDict):
     unit_tests: list[GeneratedTest]
     integration_tests: list[GeneratedTest]
     e2e_tests: list[GeneratedTest]
+    execution_summary: ExecutionSummary | None
+    coverage_confidence: CoverageConfidence | None
+    anomalies: list[AnomalyReport]

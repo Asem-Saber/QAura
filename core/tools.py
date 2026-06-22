@@ -3,6 +3,8 @@ import ast
 import importlib.util
 import re
 import glob
+import subprocess
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain_core.tools import tool
@@ -12,8 +14,10 @@ from langchain_ollama import OllamaEmbeddings
 load_dotenv()
 ROOT = Path(__file__).resolve().parent.parent
 CHROMA_PATH = str(ROOT / "codebase_db")
+EXECUTION_DB_PATH = str(ROOT / "execution_db")
 TESTS_DIR = ROOT / "tests"
 TEMPLATES_DIR = ROOT / "demo_app" / "templates"
+EVIDENCE_DIR = ROOT / ".qaura_evidence"
 
 
 @tool
@@ -152,3 +156,74 @@ PLANNING_TOOLS = [read_requirements_file]
 UNIT_TOOLS= [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file]
 INTEGRATION_TOOLS = [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file]
 E2E_TOOLS = [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file, validate_selenium_locators]
+
+def run_pytest_subprocess(test_file_name: str, test_code: str) -> tuple[bool, str]:
+    """Run a single generated test file via pytest in a subprocess.
+    Returns: (success_boolean, console_output)
+    """
+    TESTS_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = os.path.basename(test_file_name)
+    path = TESTS_DIR / safe_name
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(test_code)
+        
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", str(path), "-v"], 
+            capture_output=True, 
+            text=True, 
+            timeout=30
+        )
+        success = result.returncode == 0
+        output = result.stdout + "\n" + result.stderr
+        return (success, output)
+    except subprocess.TimeoutExpired:
+        return (False, "TimeoutExpired: Test execution exceeded 30 seconds.")
+    except Exception as e:
+        return (False, f"Execution failed: {str(e)}")
+
+def check_environment_health(base_url: str = "mock://database") -> bool:
+    """Mock pre-flight check to ensure environment is reachable before executing tests."""
+    # In a real setup, we would ping the DB or base_url here.
+    return True
+
+def capture_execution_evidence(test_id: str) -> dict:
+    """Capture snapshot of logs and DOM for a failed test. Writes simulated files."""
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = os.path.basename(test_id)
+    
+    png_path = EVIDENCE_DIR / f"{safe_name}_snapshot.png"
+    html_path = EVIDENCE_DIR / f"{safe_name}_dom.html"
+    har_path = EVIDENCE_DIR / f"{safe_name}_network.har"
+    
+    # Create simulated physical files
+    with open(png_path, "w", encoding="utf-8") as f: f.write("MOCK PNG BINARY")
+    with open(html_path, "w", encoding="utf-8") as f: f.write("<html><body>Mock Error State</body></html>")
+    with open(har_path, "w", encoding="utf-8") as f: f.write('{"log": {"entries": []}}')
+    
+    return {
+        "snapshot_url": str(png_path.absolute()),
+        "dom_dump_url": str(html_path.absolute()),
+        "network_har": str(har_path.absolute())
+    }
+
+def save_execution_memory(test_id: str, duration: float, is_flaky: bool, anomaly: str):
+    """Saves test execution metrics to Chroma memory for historical Flakiness detection."""
+    try:
+        embeddings = OllamaEmbeddings(
+            model=os.environ.get('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text'),
+            base_url=os.environ.get('OLLAMA_ENDPOINT', 'http://localhost:11434'),
+        )
+        vectorstore = Chroma(
+            persist_directory=EXECUTION_DB_PATH,
+            embedding_function=embeddings,
+        )
+        
+        content = f"Test ID: {test_id} | Flaky: {is_flaky} | Duration: {duration} | Anomaly: {anomaly}"
+        metadata = {"test_id": test_id, "is_flaky": is_flaky, "duration": duration, "anomaly": anomaly}
+        
+        vectorstore.add_texts(texts=[content], metadatas=[metadata])
+    except Exception as e:
+        print(f"Skipping Memory DB update. (Ollama not running or DB unavailable): {e}")
+
+EXECUTION_TOOLS = [run_pytest_subprocess, capture_execution_evidence, check_environment_health, save_execution_memory]

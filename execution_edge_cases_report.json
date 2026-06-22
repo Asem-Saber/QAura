@@ -1,0 +1,38 @@
+{
+    "execution_summary": {
+        "total_tests": 2,
+        "passed": 0,
+        "failed": 2,
+        "skipped": 0,
+        "flaky_tests": 0,
+        "execution_duration_ms": 29019.99258995056
+    },
+    "anomalies": [
+        {
+            "anomaly_id": "c4ed9023-4676-4390-bff9-7def549bfa0d",
+            "test_id": "test_ui_login_mock.py",
+            "affected_component": "ui_login",
+            "classification": "TEST_SCRIPT_DECAY",
+            "root_cause_hypothesis": "Agent classified failure as TEST_SCRIPT_DECAY.",
+            "stack_trace": "============================= test session starts =============================\nplatform win32 -- Python 3.14.3, pytest-9.1.0, pluggy-1.6.0 -- C:\\Python314\\python.exe\ncachedir: .pytest_cache\nrootdir: C:\\Users\\Aya Elsheshtawy\\Desktop\\NTI-Final Project\\QAura\nplugins: anyio-4.13.0, langsmith-0.8.18, mock-3.15.1\ncollecting ... collected 1 item\n\ntests/test_ui_login_mock.py::test_ui FAILED                              [100%]\n\n================================== FAILURES ===================================\n___________________________________ test_ui ___________________________________\n\n    def test_ui():\n>       raise Exception('NoSuchElementException: Unable to locate element with data-testid=\"login-button\"')\nE       Exception: NoSuchElementException: Unable to locate element with data-testid=\"login-button\"\n\ntests\\test_ui_login_mock.py:2: Exception\n=========================== short test summary info ===========================\nFAILED tests/test_ui_login_mock.py::test_ui - Exception: NoSuchEle",
+            "evidence_urls": {
+                "snapshot_url": "C:\\Users\\Aya Elsheshtawy\\Desktop\\NTI-Final Project\\QAura\\.qaura_evidence\\test_ui_login_mock.py_snapshot.png",
+                "dom_dump_url": "C:\\Users\\Aya Elsheshtawy\\Desktop\\NTI-Final Project\\QAura\\.qaura_evidence\\test_ui_login_mock.py_dom.html",
+                "network_har": "C:\\Users\\Aya Elsheshtawy\\Desktop\\NTI-Final Project\\QAura\\.qaura_evidence\\test_ui_login_mock.py_network.har"
+            }
+        },
+        {
+            "anomaly_id": "d408f34b-b682-43a3-97bf-f1b6216eaef1",
+            "test_id": "test_db_connection_mock.py",
+            "affected_component": "database",
+            "classification": "INFRASTRUCTURE",
+            "root_cause_hypothesis": "Agent classified failure as INFRASTRUCTURE.",
+            "stack_trace": "============================= test session starts =============================\nplatform win32 -- Python 3.14.3, pytest-9.1.0, pluggy-1.6.0 -- C:\\Python314\\python.exe\ncachedir: .pytest_cache\nrootdir: C:\\Users\\Aya Elsheshtawy\\Desktop\\NTI-Final Project\\QAura\nplugins: anyio-4.13.0, langsmith-0.8.18, mock-3.15.1\ncollecting ... collected 1 item\n\ntests/test_db_connection_mock.py::test_db FAILED                         [100%]\n\n================================== FAILURES ===================================\n___________________________________ test_db ___________________________________\n\n    def test_db():\n>       raise ConnectionError('Connection refused to database on port 5432. 503 Service Unavailable.')\nE       ConnectionError: Connection refused to database on port 5432. 503 Service Unavailable.\n\ntests\\test_db_connection_mock.py:2: ConnectionError\n=========================== short test summary info ===========================\nFAILED tests/test_db_connection_mock.py::test_db - ConnectionErro",
+            "evidence_urls": {
+                "snapshot_url": "C:\\Users\\Aya Elsheshtawy\\Desktop\\NTI-Final Project\\QAura\\.qaura_evidence\\test_db_connection_mock.py_snapshot.png",
+                "dom_dump_url": "C:\\Users\\Aya Elsheshtawy\\Desktop\\NTI-Final Project\\QAura\\.qaura_evidence\\test_db_connection_mock.py_dom.html",
+                "network_har": "C:\\Users\\Aya Elsheshtawy\\Desktop\\NTI-Final Project\\QAura\\.qaura_evidence\\test_db_connection_mock.py_network.har"
+            }
+        }
+    ]
+}
