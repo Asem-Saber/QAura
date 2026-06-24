@@ -2,16 +2,16 @@ import os
 from dotenv import load_dotenv
 from core.state import QAuraState, IntegrationTestOutput
 from core.tools import INTEGRATION_TOOLS
-from core.output_parsing import robust_parse
+# from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 
 load_dotenv()
-API_KEY = os.environ.get('GITHUB_API_KEY', '')
-API_ENDPOINT = os.environ.get('GITHUB_ENDPOINT', '')
-API_MODEL = os.environ.get('GITHUB_MODEL_ID', '')
+API_KEY = os.environ.get('API_KEY', '')
+API_ENDPOINT = os.environ.get('ENDPOINT', '')
+API_MODEL = os.environ.get('MODEL_ID', '')
 
 SYSTEM_PROMPT = """You are the QAura Integration Test Generator.
 
@@ -61,7 +61,7 @@ Risk areas: {risk_areas}
 
 llm = ChatOpenAI(
     base_url=API_ENDPOINT,
-    api_key=API_KEY,
+    api_key=API_KEY,    
     model=API_MODEL,
     temperature=0.2
 )
@@ -103,7 +103,8 @@ def integration_gen_node(state: QAuraState) -> dict:
     })  
 
     try:
-        output = robust_parse(agent_result["output"], IntegrationTestOutput, llm)
+        # output = robust_parse(agent_result["output"], IntegrationTestOutput, llm)
+        output = parser.invoke(agent_result["output"])
         tests = output.tests
         contracts = output.api_contracts_tested
     except Exception as e:

@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from core.tools import PLANNING_TOOLS
 from core.state import QAuraState, TestPlan
-from core.output_parsing import robust_parse
+# from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
@@ -10,11 +10,10 @@ from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 from langgraph.types import interrupt
 
 load_dotenv()
-API_KEY = os.environ.get('GITHUB_API_KEY', '')
-API_ENDPOINT = os.environ.get('GITHUB_ENDPOINT', '')
-API_MODEL = os.environ.get('GITHUB_MODEL_ID', '')
+API_KEY = os.environ.get('API_KEY', '')
+API_ENDPOINT = os.environ.get('ENDPOINT', '')
+API_MODEL = os.environ.get('MODEL_ID', '')
 
-# quick note : planning agent might need 'list_directories" tool 
 
 SYSTEM_PROMPT = """You are the QAura Test Architect. 
 Your job is to read the project requirements and draft a comprehensive test plan.
@@ -58,7 +57,8 @@ def test_architect_node(state: QAuraState) -> dict:
     })
 
     try:
-        generated_plan = robust_parse(agent_result["output"], TestPlan, llm)
+        # generated_plan = robust_parse(agent_result["output"], TestPlan, llm)
+        generated_plan = parser.invoke(agent_result["output"])
         num_components = len(generated_plan.components)
     except Exception as e:
         print(f"Error parsing JSON: {e}\nAgent Output was: {agent_result['output'][:500]}")

@@ -1,0 +1,80 @@
+---
+config:
+  flowchart:
+    defaultRenderer: elk
+    spacing: 50
+---
+flowchart TB
+    %% Auto-organized structure with consistent vertical spacing %%
+
+    subgraph PHASE1["🟪 Phase 1: Planning & Design"]
+      direction TB
+      A["Git PR / Requirements"]:::p1node
+      B["Test Architect Agent"]:::p1node
+      HITL1{{"👤 Human: Approve Plan?"}}:::hitl
+      C{"Route to Required Layers"}:::p1node
+      A --> B --> HITL1
+      HITL1 -- Modify/Reject --> B
+      HITL1 -- Approved --> C
+    end
+
+    subgraph PHASE2["Phase 2: Creating Test Cases"]
+      direction TB
+      D["Unit Test Generator"]:::phase2
+      E["Integration Test Generator"]:::phase2
+      F["E2E & Security Generator"]:::phase2
+      G["Shared State: Compiled Test Suites"]:::phase2
+      D --> G
+      E --> G
+      F --> G
+    end
+
+    subgraph PHASE3["Phase 3: Environment Setup"]
+      direction TB
+      H[["Environment Manager Tool"]]:::phase3
+      I["Execution Runner Node"]:::phase3
+      H --> I
+    end
+
+    subgraph PHASE4["Phase 4: Execution & Reporting"]
+      direction TB
+      R["Reporting Agent"]:::phase4
+      J["CI/CD: Green Build"]:::phase4
+      K["Defect Intelligence Agent"]:::phase4
+      R --> J
+      R --> K
+    end
+
+    subgraph PHASE5["Phase 5: Intelligent Self-Healing & HITL"]
+      direction TB
+      L{"Root Cause?"}:::phase5
+      M["Self-Healing Agent: Update Script"]:::phase5
+      N["Self-Healing Agent: Draft Fix PR"]:::phase5
+      HITL3["Human: Resolve Complex Bug"]:::hitl
+      HITL4["Human: Review AI Locators"]:::hitl
+      HITL2["Human: Code Review & Merge"]:::hitl
+      L --> M & N & HITL3
+      M -.-> HITL4
+      N --> HITL2
+    end
+
+    %% Main inter-phase flow %%
+    C --> D & E & F
+    G --> H
+    I --> R
+    R -- Fail --> K
+    K --> L
+    L -.-> M
+    M -.-> R
+    N -.-> R
+
+    %% Color and class definitions %%
+    classDef p1node stroke:#4f46e5,fill:#eef2ff,color:#000,stroke-width:1.5px,rx:8px,ry:8px
+    classDef phase2 stroke:#22d3ee,fill:#ecfeff,color:#000
+    classDef phase3 stroke:#2dd4bf,fill:#f0fdfa,color:#000
+    classDef phase4 stroke:#4ade80,fill:#f0fdf4,color:#000
+    classDef phase5 stroke:#fb923c,fill:#fff7ed,color:#000
+    classDef hitl stroke:#f43f5e,fill:#fff1f2,color:#000,font-weight:bold,stroke-width:2px,stroke-dasharray:5 5
+
+    class A,B,C p1node
+    class HITL1,HITL2,HITL3,HITL4 hitl
