@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from core.state import QAuraState, UnitTestOutput
 from core.tools import UNIT_TOOLS
+from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
@@ -53,7 +54,7 @@ have not validated and written to disk.
 HUMAN_PROMPT= """Based on the test plan, please generate unit tests for the following components:
 
 {components}
-
+    
 Project summary: {project_summary}
 Risk areas: {risk_areas}
 """
@@ -65,6 +66,7 @@ llm = ChatOpenAI(
     temperature=0.2
 )
 
+
 parser = PydanticOutputParser(pydantic_object=UnitTestOutput)
 
 prompt = ChatPromptTemplate.from_messages([
@@ -75,7 +77,7 @@ prompt = ChatPromptTemplate.from_messages([
 prompt = prompt.partial(format_instructions=parser.get_format_instructions())
 
 agent = create_tool_calling_agent(llm, UNIT_TOOLS, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=UNIT_TOOLS, verbose=True)
+agent_executor = AgentExecutor(agent=agent, tools=UNIT_TOOLS, verbose=True, max_iterations=100)
 
 def unit_test_gen_node(state: QAuraState) -> dict:
     """LangGraph node — generates unit tests for components in unit_scope."""
@@ -102,7 +104,7 @@ def unit_test_gen_node(state: QAuraState) -> dict:
     })
 
     try:
-        output = parser.invoke(agent_result["output"])
+        output = robust_parse(agent_result["output"], UnitTestOutput, llm)
         tests = output.tests
     except Exception as e:
         print(f"Error parsing output: {e}")

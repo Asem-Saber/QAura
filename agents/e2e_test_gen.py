@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from core.state import QAuraState, E2ETestOutput
 from core.tools import E2E_TOOLS
+from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
@@ -95,7 +96,7 @@ prompt = ChatPromptTemplate.from_messages([
 prompt = prompt.partial(format_instructions=parser.get_format_instructions())
 
 agent = create_tool_calling_agent(llm, E2E_TOOLS, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=E2E_TOOLS, verbose=True)
+agent_executor = AgentExecutor(agent=agent, tools=E2E_TOOLS, verbose=True, max_iterations=100)
 
 def e2e_gen_node(state: QAuraState) -> dict:
     """LangGraph node — generates E2E tests for e2e_scope."""
@@ -122,7 +123,7 @@ def e2e_gen_node(state: QAuraState) -> dict:
     })
 
     try:
-        output = parser.invoke(agent_result["output"])
+        output = robust_parse(agent_result["output"], E2ETestOutput, llm)
         tests = output.tests
     except Exception as e:
         print(f"Error parsing output: {e}")
