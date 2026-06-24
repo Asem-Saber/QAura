@@ -10,9 +10,9 @@ from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 from langgraph.types import interrupt
 
 load_dotenv()
-API_KEY = os.environ.get('API_KEY', '')
-API_ENDPOINT = os.environ.get('ENDPOINT', '')
-API_MODEL = os.environ.get('MODEL_ID', '')
+API_KEY = os.environ.get('PLANNING_API_KEY', '')
+API_ENDPOINT = os.environ.get('PLANNING_ENDPOINT', '')
+API_MODEL = os.environ.get('PLANNING_MODEL_ID', '')
 
 
 SYSTEM_PROMPT = """You are the QAura Test Architect. 
