@@ -1,0 +1,8 @@
+<div class="form-group">
+                <label for="reg-password">Password</label>
+                <input type="password" id="reg-password" data-testid="register-password" placeholder="Choose a password" required>
+            </div>
+            <button type="submit" class="btn" data-testid="register-submit">Register</button>
+        </form>
+
+        <p id="error-message" data-testid="error-messag
