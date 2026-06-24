@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from core.tools import PLANNING_TOOLS
 from core.state import QAuraState, TestPlan
-from core.output_parsing import robust_parse
+# from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
@@ -58,7 +58,8 @@ def test_architect_node(state: QAuraState) -> dict:
     })
 
     try:
-        generated_plan = robust_parse(agent_result["output"], TestPlan, llm)
+        # generated_plan = robust_parse(agent_result["output"], TestPlan, llm)
+        generated_plan = parser.invoke(agent_result["output"])
         num_components = len(generated_plan.components)
     except Exception as e:
         print(f"Error parsing JSON: {e}\nAgent Output was: {agent_result['output'][:500]}")

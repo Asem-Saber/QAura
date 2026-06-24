@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from core.state import QAuraState, IntegrationTestOutput
 from core.tools import INTEGRATION_TOOLS
-from core.output_parsing import robust_parse
+# from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
@@ -103,7 +103,8 @@ def integration_gen_node(state: QAuraState) -> dict:
     })  
 
     try:
-        output = robust_parse(agent_result["output"], IntegrationTestOutput, llm)
+        # output = robust_parse(agent_result["output"], IntegrationTestOutput, llm)
+        output = parser.invoke(agent_result["output"])
         tests = output.tests
         contracts = output.api_contracts_tested
     except Exception as e:

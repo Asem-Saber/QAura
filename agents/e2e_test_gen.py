@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from core.state import QAuraState, E2ETestOutput
 from core.tools import E2E_TOOLS
-from core.output_parsing import robust_parse
+# from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
@@ -123,7 +123,8 @@ def e2e_gen_node(state: QAuraState) -> dict:
     })
 
     try:
-        output = robust_parse(agent_result["output"], E2ETestOutput, llm)
+        # output = robust_parse(agent_result["output"], E2ETestOutput, llm)
+        output = parser.invoke(agent_result["output"])
         tests = output.tests
     except Exception as e:
         print(f"Error parsing output: {e}")

@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from core.state import QAuraState, UnitTestOutput
 from core.tools import UNIT_TOOLS
-from core.output_parsing import robust_parse
+# from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
@@ -104,7 +104,8 @@ def unit_test_gen_node(state: QAuraState) -> dict:
     })
 
     try:
-        output = robust_parse(agent_result["output"], UnitTestOutput, llm)
+        # output = robust_parse(agent_result["output"], UnitTestOutput, llm)
+        output = parser.invoke(agent_result["output"])
         tests = output.tests
     except Exception as e:
         print(f"Error parsing output: {e}")
