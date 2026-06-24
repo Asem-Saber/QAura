@@ -9,9 +9,9 @@ from langchain_core.output_parsers import PydanticOutputParser
 from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 
 load_dotenv()
-API_KEY = os.environ.get('API_KEY', '')
-API_ENDPOINT = os.environ.get('ENDPOINT', '')
-API_MODEL = os.environ.get('MODEL_ID', '')
+API_KEY = os.environ.get('E2E_TEST_API_KEY', '')
+API_ENDPOINT = os.environ.get('E2E_TEST_ENDPOINT', '')
+API_MODEL = os.environ.get('E2E_TEST_MODEL_ID', '')
 
 SYSTEM_PROMPT = """You are the QAura E2E Test Generator. Your job is to write \
 end-to-end browser tests using Selenium WebDriver that exercise complete user \
