@@ -40,6 +40,37 @@ class E2ETestOutput(BaseModel):
     tests: List[GeneratedTest] = Field(description="List of generated E2E test files")
     user_flows_covered: list[str] = Field(description="User flows automated in E2E tests")
 
+class ExecutionResultsSummary(BaseModel):
+    total_tests: int = 0
+    passed: int = 0
+    failed: int = 0
+    blocked: int = 0
+    execution_duration_ms: int = 0
+    critical_path_success: bool = True
+
+class ComponentScore(BaseModel):
+    component: str
+    score: float
+
+class CoverageConfidenceAssessment(BaseModel):
+    overall_confidence: float = 0.0
+    component_scores: List[ComponentScore] = Field(default_factory=list)
+    identified_gaps: List[str] = Field(default_factory=list)
+
+class StructuredAnomalyReport(BaseModel):
+    anomaly_id: str
+    test_id: str
+    affected_component: str
+    classification: Literal['INFRASTRUCTURE', 'APPLICATION_DEFECT', 'TEST_SCRIPT_DECAY']
+    root_cause_hypothesis: str
+    correlated_stack_trace: str
+
+class ExecutionMemoryUpdate(BaseModel):
+    test_id: str
+    duration_ms: int
+    flaky_flag_raised: bool
+    retry_count: int
+
 class QAuraState(TypedDict):
     requirements_path: str
     test_plan: TestPlan | None
@@ -48,3 +79,8 @@ class QAuraState(TypedDict):
     unit_tests: list[GeneratedTest]
     integration_tests: list[GeneratedTest]
     e2e_tests: list[GeneratedTest]
+    environment_status: dict
+    execution_summary: ExecutionResultsSummary | None
+    coverage_assessment: CoverageConfidenceAssessment | None
+    anomaly_reports: list[StructuredAnomalyReport]
+    execution_memory: list[ExecutionMemoryUpdate]

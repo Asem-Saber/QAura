@@ -3,6 +3,9 @@ import ast
 import importlib.util
 import re
 import glob
+import subprocess
+import urllib.request
+import urllib.error
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain_core.tools import tool
@@ -149,8 +152,58 @@ def write_test_file(file_name: str, test_code: str) -> str:
         return f"Failed to write {path}: {e}"
 
 
+@tool
+def run_pytest_suite(target: str) -> str:
+    """Run pytest on the given target (file or directory) and return the output.
+    
+    Args:
+        target: Path to the test file or directory to execute, relative to project root.
+    """
+    path = TESTS_DIR / target
+    try:
+        result = subprocess.run(
+            ["python", "-m", "pytest", str(path), "-v", "--tb=short"], 
+            capture_output=True, 
+            text=True,
+            timeout=120
+        )
+        output = result.stdout
+        if result.stderr:
+            output += f"\nSTDERR:\n{result.stderr}"
+        return output
+    except subprocess.TimeoutExpired:
+        return f"Execution of {target} timed out after 120 seconds."
+    except Exception as e:
+        return f"Failed to run pytest: {e}"
+
+@tool
+def check_environment_health() -> str:
+    """Check the real-time health of the environment (e.g. database and server).
+    
+    Returns a JSON-like string with the status of runners and network.
+    """
+    db_path = ROOT / "demo_app" / "demo.db"
+    db_connected = db_path.exists()
+    
+    server_status = "unreachable"
+    try:
+        response = urllib.request.urlopen("http://localhost:3000/health", timeout=2)
+        if response.status == 200:
+            server_status = "healthy"
+    except urllib.error.URLError:
+        server_status = "unreachable"
+    except Exception:
+        pass
+    
+    return str({
+        "runners_available": True,
+        "db_connected": db_connected,
+        "server_status": server_status,
+        "base_url": "http://localhost:3000"
+    })
 
 PLANNING_TOOLS = [read_requirements_file]
 UNIT_TOOLS= [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file]
 INTEGRATION_TOOLS = [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file]
 E2E_TOOLS = [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file, validate_selenium_locators]
+EXECUTION_TOOLS = [run_pytest_suite, check_environment_health]
