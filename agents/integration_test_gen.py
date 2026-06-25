@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from core.state import QAuraState, IntegrationTestOutput
 from core.tools import INTEGRATION_TOOLS
-# from core.output_parsing import robust_parse
+from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
@@ -76,7 +76,7 @@ prompt = ChatPromptTemplate.from_messages([
 prompt = prompt.partial(format_instructions=parser.get_format_instructions())
 
 agent = create_tool_calling_agent(llm, INTEGRATION_TOOLS, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=INTEGRATION_TOOLS, verbose=True, max_iterations=100)
+agent_executor = AgentExecutor(agent=agent, tools=INTEGRATION_TOOLS, verbose=True, max_iterations=40)
 
 def integration_gen_node(state: QAuraState) -> dict:
     """LangGraph node — generates integration tests for components in integration_scope."""
@@ -103,8 +103,7 @@ def integration_gen_node(state: QAuraState) -> dict:
     })  
 
     try:
-        # output = robust_parse(agent_result["output"], IntegrationTestOutput, llm)
-        output = parser.invoke(agent_result["output"])
+        output = robust_parse(agent_result["output"], IntegrationTestOutput, llm)
         tests = output.tests
         contracts = output.api_contracts_tested
     except Exception as e:

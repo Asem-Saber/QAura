@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from core.tools import PLANNING_TOOLS
 from core.state import QAuraState, TestPlan
-# from core.output_parsing import robust_parse
+from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
@@ -36,8 +36,7 @@ prompt = ChatPromptTemplate.from_messages([
     MessagesPlaceholder(variable_name="agent_scratchpad"),
 ])
 
-parser = PydanticOutputParser(pydantic_object=TestPlan)
-prompt = prompt.partial(format_instructions=parser.get_format_instructions())
+prompt = prompt.partial(format_instructions=PydanticOutputParser(pydantic_object=TestPlan).get_format_instructions())
 
 llm = ChatOpenAI(
     base_url=API_ENDPOINT, 
@@ -57,8 +56,7 @@ def test_architect_node(state: QAuraState) -> dict:
     })
 
     try:
-        # generated_plan = robust_parse(agent_result["output"], TestPlan, llm)
-        generated_plan = parser.invoke(agent_result["output"])
+        generated_plan = robust_parse(agent_result["output"], TestPlan, llm)
         num_components = len(generated_plan.components)
     except Exception as e:
         print(f"Error parsing JSON: {e}\nAgent Output was: {agent_result['output'][:500]}")
