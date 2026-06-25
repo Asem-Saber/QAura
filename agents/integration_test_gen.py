@@ -23,19 +23,54 @@ WORKFLOW:
 1. You will receive the test plan with components in integration_scope.
 2. For EACH component, use the `search_codebase` tool to retrieve:
    - The function implementations
-   - The API route handlers
-   - The database schema
+   - The API route handlers (search for "@app.get", "@app.post", etc.)
+   - The database schema (search for "CREATE TABLE" or the models file)
 3. Generate comprehensive integration test files.
 
 TEST WRITING RULES:
 - Use `pytest` as the framework.
-- These tests call REAL functions with a REAL test database 
+- These tests call REAL functions with a REAL test database.
 - Do NOT mock the database — integration tests validate actual DB interactions.
 - Test the full call chain: API handler → business logic → database → response.
-- For API tests, use `fastapi.testclient.TestClient` to make actual HTTP requests.
 - Verify database state AFTER operations (query the DB to confirm writes).
 - Test error propagation: bad input at the API level should return proper HTTP errors.
-- Include setup/teardown to create a fresh DB for each test.
+
+DATABASE SETUP:
+- Use an in-memory SQLite database for speed: `sqlite3.connect(":memory:")`.
+- In a `@pytest.fixture`, call `init_db()` and `seed_db()` from the models module
+  to create the schema and populate test data. Teardown by closing the connection.
+- Patch `models.get_db` to return your test connection so all code under test uses it.
+- Example pattern:
+  ```
+  @pytest.fixture
+  def test_db():
+      conn = sqlite3.connect(":memory:")
+      conn.row_factory = sqlite3.Row
+      with patch('models.get_db', return_value=conn):
+          init_db()
+          seed_db()
+          yield conn
+      conn.close()
+  ```
+
+API TEST SETUP:
+- Import the FastAPI app: `from server import app`
+- Use `from fastapi.testclient import TestClient` → `client = TestClient(app)`
+- Combine with the database fixture so API calls hit the test DB.
+- Example:
+  ```
+  @pytest.fixture
+  def client(test_db):
+      with patch('models.get_db', return_value=test_db):
+          yield TestClient(app)
+  ```
+
+IMPORT CONVENTIONS:
+- Import modules by their bare name: `from server import app`, `from models import init_db, seed_db`.
+  The test runner's conftest.py handles path resolution.
+
+FILE NAMING:
+- Name each test file as `test_integration_<module>.py` (e.g., `test_integration_server.py`).
 
 VALIDATION (MANDATORY — do this before returning your final answer):
 For EACH test file you generate, you MUST call these tools IN THIS ORDER:
@@ -47,6 +82,12 @@ For EACH test file you generate, you MUST call these tools IN THIS ORDER:
 If any validation step fails, FIX the code and re-validate. Never call
 write_test_file with code that fails validation. Never return code you
 have not validated and written to disk.
+
+OUTPUT REQUIREMENTS:
+- test_code: include the FULL source code — not a placeholder or reference.
+- api_contracts_tested: list each endpoint as "METHOD /path" (e.g., "POST /register", "GET /products").
+- db_fixtures_needed: list the tables or seed data required (e.g., "users table with test user",
+  "products table with 3 sample products").
 
 {format_instructions}
 """
@@ -96,11 +137,14 @@ def integration_gen_node(state: QAuraState) -> dict:
         for c in integration_components
     )
 
-    agent_result = agent_executor.invoke({
-        "components": components_text,
-        "project_summary": test_plan.project_summary,
-        "risk_areas": test_plan.risk_areas
-    })  
+    agent_result = agent_executor.invoke(
+        {
+            "components": components_text,
+            "project_summary": test_plan.project_summary,
+            "risk_areas": test_plan.risk_areas,
+        },
+        config={"callbacks": state.get("callbacks", [])},
+    )
 
     try:
         output = robust_parse(agent_result["output"], IntegrationTestOutput, llm)

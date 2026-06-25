@@ -37,6 +37,17 @@ TEST WRITING RULES:
 - Use `@pytest.mark.parametrize` when testing multiple similar inputs.
 - Do NOT import or connect to a real database. Mock `sqlite3.connect` and cursors.
 
+IMPORT CONVENTIONS:
+- Import the module under test using its bare module name:
+  `from auth import register_user`, `from orders import get_products`.
+  The test runner's conftest.py handles path resolution — do NOT use `demo_app.auth`.
+- For mocking database access, patch where it's looked up:
+  `@patch('auth.get_db')` or `@patch('orders.get_db')`.
+
+FILE NAMING:
+- Name each test file as `test_<module>.py` (e.g., `test_auth.py`, `test_orders.py`).
+- One test file per component in unit_scope.
+
 VALIDATION (MANDATORY — do this before returning your final answer):
 For EACH test file you generate, you MUST call these tools IN THIS ORDER:
 1. validate_python_syntax  — fix any syntax errors, then re-run
@@ -47,6 +58,12 @@ For EACH test file you generate, you MUST call these tools IN THIS ORDER:
 If any validation step fails, FIX the code and re-validate. Never call
 write_test_file with code that fails validation. Never return code you
 have not validated and written to disk.
+
+OUTPUT REQUIREMENTS:
+- test_code: include the FULL source code you wrote and validated — not a placeholder.
+- coverage_notes: briefly state what IS covered and any scenarios you intentionally skipped
+  (e.g., "Covered all public functions in auth.py. Skipped internal helper _hash_token
+  as it's tested indirectly via login_user.").
 
 {format_instructions}
 """
@@ -97,11 +114,14 @@ def unit_test_gen_node(state: QAuraState) -> dict:
         for c in unit_components
     )
 
-    agent_result = agent_executor.invoke({
-        "components": components_text,
-        "project_summary": test_plan.project_summary,
-        "risk_areas": test_plan.risk_areas
-    })
+    agent_result = agent_executor.invoke(
+        {
+            "components": components_text,
+            "project_summary": test_plan.project_summary,
+            "risk_areas": test_plan.risk_areas,
+        },
+        config={"callbacks": state.get("callbacks", [])},
+    )
 
     try:
         output = robust_parse(agent_result["output"], UnitTestOutput, llm)

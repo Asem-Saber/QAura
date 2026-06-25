@@ -42,6 +42,22 @@ Categorize each failure from the pytest logs:
 - APPLICATION_DEFECT: AssertionError, TypeError, IndexError, logic failures
 - TEST_SCRIPT_DECAY: ElementNotFoundException, stale locator, import error in test file
 
+SCORING RULES (use these to populate the output fields):
+- total_tests / passed / failed / blocked: extract from pytest's summary line
+  (e.g., "21 passed, 7 failed in 0.22s"). Tests that error during collection = blocked.
+- execution_duration_ms: extract total time from pytest output, convert to milliseconds.
+- critical_path_success: TRUE if all components marked High-risk have >50% pass rate.
+  FALSE if any High-risk component has majority failures or is entirely blocked.
+- overall_confidence: (passed / total_tests) as a float between 0.0 and 1.0.
+  If no tests ran, use 0.0.
+- component_scores: for each component, compute (passed_in_component / total_in_component).
+  Group tests by their target component from the file names or test plan.
+- identified_gaps: list components from the test plan that have NO test files present,
+  or components where all tests are blocked/errored.
+- flaky_flag_raised: always false (single run — no flakiness signal available).
+- retry_count: always 0 (no retry configured in this environment).
+- anomaly_id: use sequential format "ANOM-001", "ANOM-002", etc.
+
 PHASE 3 — FINAL OUTPUT:
 
 Once you have gathered all information via tools, your FINAL response must be a single
@@ -99,11 +115,14 @@ def execution_agent_node(state: QAuraState) -> dict:
 
     compiled_tests_str = "\n".join(compiled_tests) if compiled_tests else "No tests found in state."
 
-    agent_result = agent_executor.invoke({
-        "project_summary": project_summary,
-        "risk_areas": ", ".join(risk_areas),
-        "compiled_tests": compiled_tests_str
-    })
+    agent_result = agent_executor.invoke(
+        {
+            "project_summary": project_summary,
+            "risk_areas": ", ".join(risk_areas),
+            "compiled_tests": compiled_tests_str,
+        },
+        config={"callbacks": state.get("callbacks", [])},
+    )
 
     try:
         output = robust_parse(agent_result["output"], ExecutionOutput, llm)
