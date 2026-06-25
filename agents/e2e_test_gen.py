@@ -44,9 +44,11 @@ TEST WRITING RULES:
 - Structure each test as a complete user journey: navigate → interact → assert →
   cleanup.
 - Include a `@pytest.fixture` for driver setup/teardown.
-- Drive the app via its base URL. Read it from a `BASE_URL` constant (default it to
-  the value documented in the codebase/requirements, or an env var) rather than
-  hard-coding a host you assumed.
+
+BASE URL:
+- Use the APP_BASE_URL environment variable:
+  `BASE_URL = os.environ.get('APP_BASE_URL', 'http://localhost:3000')`
+- Never hard-code a host or port — always read from this variable.
 
 WHAT TO COVER:
 Derive the flows from the components in e2e_scope and what you find in the codebase.
@@ -55,6 +57,9 @@ the UI is supposed to handle (e.g. invalid input shows an error, unauthenticated
 access is redirected). Typical journeys include sign-in/sign-out, form submission
 and its confirmation, navigation between pages, and any stateful action the UI
 performs — but only those that actually exist in the app under test.
+
+FILE NAMING:
+- Name each test file as `test_e2e_<flow>.py` (e.g., `test_e2e_login.py`, `test_e2e_orders.py`).
 
 VALIDATION (MANDATORY — do this before returning your final answer):
 For EACH test file you generate, you MUST call these tools IN THIS ORDER:
@@ -67,6 +72,12 @@ For EACH test file you generate, you MUST call these tools IN THIS ORDER:
 If any validation step fails, FIX the code and re-validate. Never call
 write_test_file with code that fails validation. Never return code you
 have not validated and written to disk.
+
+OUTPUT REQUIREMENTS:
+- test_code: include the FULL source code — not a placeholder or reference.
+- user_flows_covered: list each flow as a short description (e.g.,
+  "User registration with valid input", "Login with invalid credentials shows error",
+  "Browse products and place order").
 
 {format_instructions}
 """
@@ -118,11 +129,14 @@ def e2e_gen_node(state: QAuraState) -> dict:
         for c in e2e_components
     )
 
-    agent_result = agent_executor.invoke({
-        "components": components_text,
-        "project_summary": test_plan.project_summary,
-        "risk_areas": test_plan.risk_areas
-    })
+    agent_result = agent_executor.invoke(
+        {
+            "components": components_text,
+            "project_summary": test_plan.project_summary,
+            "risk_areas": test_plan.risk_areas,
+        },
+        config={"callbacks": state.get("callbacks", [])},
+    )
 
     try:
         output = robust_parse(agent_result["output"], E2ETestOutput, llm)
