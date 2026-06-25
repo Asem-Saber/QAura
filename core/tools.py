@@ -122,7 +122,7 @@ def validate_selenium_locators(test_code: str) -> str:
     """Check that data-testid selectors used in Selenium tests match actual attributes in the HTML templates."""
     used = set(re.findall(r"data-testid=['\"]([^'\"]+)['\"]", test_code))
     existing = set()
-    for html_file in glob.glob(str(TEMPLATES_DIR / "*.html")):
+    for html_file in glob.glob(str(TEMPLATES_DIR / "**" / "*.html"), recursive=True):
         with open(html_file, "r", encoding="utf-8") as f:
             existing.update(re.findall(r'data-testid=["\']([^"\']+)["\']', f.read()))
     missing = used - existing
@@ -155,11 +155,11 @@ def write_test_file(file_name: str, test_code: str) -> str:
 @tool
 def run_pytest_suite(target: str) -> str:
     """Run pytest on the given target (file or directory) and return the output.
-    
+
     Args:
-        target: Path to the test file or directory to execute, relative to project root.
+        target: Path to the test file or directory, relative to project root (e.g. 'tests/' or 'tests/test_auth.py').
     """
-    path = TESTS_DIR / target
+    path = ROOT / target
     try:
         result = subprocess.run(
             ["python", "-m", "pytest", str(path), "-v", "--tb=short"], 
@@ -186,8 +186,9 @@ def check_environment_health() -> str:
     db_connected = db_path.exists()
     
     server_status = "unreachable"
+    base_url = os.environ.get('APP_BASE_URL', 'http://localhost:3000')
     try:
-        response = urllib.request.urlopen("http://localhost:3000/health", timeout=2)
+        response = urllib.request.urlopen(f"{base_url}/health", timeout=2)
         if response.status == 200:
             server_status = "healthy"
     except urllib.error.URLError:
@@ -199,7 +200,7 @@ def check_environment_health() -> str:
         "runners_available": True,
         "db_connected": db_connected,
         "server_status": server_status,
-        "base_url": "http://localhost:3000"
+        "base_url": base_url
     })
 
 PLANNING_TOOLS = [read_requirements_file]

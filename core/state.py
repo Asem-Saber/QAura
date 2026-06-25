@@ -34,11 +34,11 @@ class UnitTestOutput(BaseModel):
 class IntegrationTestOutput(BaseModel):
     tests: List[GeneratedTest] = Field(description="List of generated integration test files")
     api_contracts_tested: List[str] = Field(description="API endpoints covered")
-    db_fixtures_needed: list[str] = Field(description="Database fixtures required for these tests")
+    db_fixtures_needed: List[str] = Field(description="Database fixtures required for these tests")
 
 class E2ETestOutput(BaseModel):
     tests: List[GeneratedTest] = Field(description="List of generated E2E test files")
-    user_flows_covered: list[str] = Field(description="User flows automated in E2E tests")
+    user_flows_covered: List[str] = Field(description="User flows automated in E2E tests")
 
 class ExecutionResultsSummary(BaseModel):
     total_tests: int = 0
@@ -71,16 +71,23 @@ class ExecutionMemoryUpdate(BaseModel):
     flaky_flag_raised: bool
     retry_count: int
 
+class ExecutionOutput(BaseModel):
+    """Combined output from the Execution Agent."""
+    execution_summary: ExecutionResultsSummary
+    coverage_assessment: CoverageConfidenceAssessment
+    anomaly_reports: List[StructuredAnomalyReport]
+    execution_memory: List[ExecutionMemoryUpdate]
+
 class QAuraState(TypedDict):
     requirements_path: str
     test_plan: TestPlan | None
     plan_approved: bool
     messages: Annotated[list, operator.add]
-    unit_tests: list[GeneratedTest]
-    integration_tests: list[GeneratedTest]
-    e2e_tests: list[GeneratedTest]
+    unit_tests: List[GeneratedTest]
+    integration_tests: List[GeneratedTest]
+    e2e_tests: List[GeneratedTest]
     environment_status: dict
     execution_summary: ExecutionResultsSummary | None
     coverage_assessment: CoverageConfidenceAssessment | None
-    anomaly_reports: list[StructuredAnomalyReport]
-    execution_memory: list[ExecutionMemoryUpdate]
+    anomaly_reports: List[StructuredAnomalyReport]
+    execution_memory: List[ExecutionMemoryUpdate]

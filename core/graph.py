@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parent.parent
 from core.state import QAuraState
 from agents.planning_agent import test_architect_node, hitl_approval_node
 from agents.unit_test_gen import unit_test_gen_node
-from agents.integration_test_gen import integration_gen_node
-from agents.e2e_test_gen import e2e_gen_node
+# from agents.integration_test_gen import integration_gen_node
+# from agents.e2e_test_gen import e2e_gen_node
 from agents.execution_agent import execution_agent_node
 
 load_dotenv()
@@ -25,8 +25,8 @@ builder = StateGraph(QAuraState)
 builder.add_node("test_architect", test_architect_node)
 builder.add_node("human_approval", hitl_approval_node)
 builder.add_node("unit_test_gen", unit_test_gen_node)
-builder.add_node("integration_gen", integration_gen_node)
-builder.add_node("e2e_gen", e2e_gen_node)
+# builder.add_node("integration_gen", integration_gen_node)
+# builder.add_node("e2e_gen", e2e_gen_node)
 builder.add_node("execution_agent", execution_agent_node)
 
 builder.add_edge(START, "test_architect")
@@ -34,18 +34,18 @@ builder.add_edge("test_architect", "human_approval")
 
 def route_after_approval(state: QAuraState) -> list[str]:
     if state.get("plan_approved", False):
-        return ["unit_test_gen", "integration_gen", "e2e_gen"]
+        return ["unit_test_gen", END]
     return [END]
 
 builder.add_conditional_edges(
     "human_approval",
     route_after_approval,
-    ["unit_test_gen", "integration_gen", "e2e_gen", END]
+    ["unit_test_gen", END]
 )
 
 builder.add_edge("unit_test_gen", "execution_agent")
-builder.add_edge("integration_gen", "execution_agent")
-builder.add_edge("e2e_gen", "execution_agent")
+# builder.add_edge("integration_gen", "execution_agent")
+# builder.add_edge("e2e_gen", "execution_agent")
 builder.add_edge("execution_agent", END)
 memory = MemorySaver()
 
@@ -55,7 +55,24 @@ if __name__ == "__main__":
     print("Starting QAura Graph...")
     config = {"configurable": {"thread_id": "qaura_run_1"}}  
     
-    events = graph.stream({"requirements_path": str(ROOT / "project_requirements.md")}, config=config, stream_mode="values")
+    events = graph.stream(
+        {
+            "requirements_path": str(ROOT / "project_requirements.md"),
+            "test_plan": None,
+            "plan_approved": False,
+            "messages": [],
+            "unit_tests": [],
+            "integration_tests": [],
+            "e2e_tests": [],
+            "environment_status": {},
+            "execution_summary": None,
+            "coverage_assessment": None,
+            "anomaly_reports": [],
+            "execution_memory": [],
+        },
+        config=config,
+        stream_mode="values",
+    )
     
     for output in events:
         print("Current State Messages:", output.get('messages', []))
