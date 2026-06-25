@@ -83,7 +83,9 @@ llm = ChatOpenAI(
     base_url=API_ENDPOINT,
     api_key=API_KEY,
     model=API_MODEL,
-    temperature=0.2
+    temperature=0.2, 
+    request_timeout=300,  
+    max_retries=3,        
 )
 
 parser = PydanticOutputParser(pydantic_object=E2ETestOutput)
@@ -96,7 +98,7 @@ prompt = ChatPromptTemplate.from_messages([
 prompt = prompt.partial(format_instructions=parser.get_format_instructions())
 
 agent = create_tool_calling_agent(llm, E2E_TOOLS, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=E2E_TOOLS, verbose=True, max_iterations=100)
+agent_executor = AgentExecutor(agent=agent, tools=E2E_TOOLS, verbose=True, max_iterations=30)
 
 def e2e_gen_node(state: QAuraState) -> dict:
     """LangGraph node — generates E2E tests for e2e_scope."""
