@@ -17,6 +17,8 @@ from agents.unit_test_gen import unit_test_gen_node
 # from agents.integration_test_gen import integration_gen_node
 # from agents.e2e_test_gen import e2e_gen_node
 from agents.execution_agent import execution_agent_node
+from agents.reporting_agent import reporting_agent_node
+from agents.defect_intelligence_agent import defect_intelligence_agent_node
 
 load_dotenv()
 
@@ -28,6 +30,8 @@ builder.add_node("unit_test_gen", unit_test_gen_node)
 # builder.add_node("integration_gen", integration_gen_node)
 # builder.add_node("e2e_gen", e2e_gen_node)
 builder.add_node("execution_agent", execution_agent_node)
+builder.add_node("reporting_agent", reporting_agent_node)         
+builder.add_node("defect_intelligence_agent", defect_intelligence_agent_node)  
 
 builder.add_edge(START, "test_architect")
 builder.add_edge("test_architect", "human_approval")
@@ -46,7 +50,23 @@ builder.add_conditional_edges(
 builder.add_edge("unit_test_gen", "execution_agent")
 # builder.add_edge("integration_gen", "execution_agent")
 # builder.add_edge("e2e_gen", "execution_agent")
-builder.add_edge("execution_agent", END)
+
+builder.add_edge("execution_agent", "reporting_agent")
+
+def route_after_reporting(state: QAuraState) -> str:
+    """Route to defect analysis if anomalies were found, otherwise end."""
+    anomalies = state.get("anomaly_reports", [])
+    if anomalies:
+        return "defect_intelligence_agent"
+    return END
+
+builder.add_conditional_edges(
+    "reporting_agent",
+    route_after_reporting,
+    ["defect_intelligence_agent", END]
+)
+
+builder.add_edge("defect_intelligence_agent", END)
 memory = MemorySaver()
 
 graph = builder.compile(checkpointer=memory)
@@ -67,7 +87,9 @@ def get_initial_state(requirements_path: str = None) -> dict:
         "coverage_assessment": None,
         "anomaly_reports": [],
         "execution_memory": [],
-        "callbacks": [],
+        "qa_report": None,
+        "report_path": "",
+        "defect_analyses": [],
     }
 
 
@@ -121,3 +143,18 @@ if __name__ == "__main__":
     if final_state and final_state.get("execution_summary"):
         print("\n--- Execution Summary ---")
         print(final_state.get("execution_summary"))
+
+    if final_state and final_state.get("qa_report"):
+        report = final_state["qa_report"]
+        print("\n--- QA Report ---")
+        print(f"  Verdict : {report.overall_verdict}")
+        print(f"  Summary : {report.executive_summary}")
+        print(f"  Saved to: {final_state.get('report_path')}")
+
+    if final_state and final_state.get("defect_analyses"):
+        print("\n--- Defect Analyses ---")
+        for analysis in final_state["defect_analyses"]:
+            print(
+                f"  [{analysis.anomaly_id}] {analysis.resolution_action}: "
+                f"{analysis.confirmed_root_cause}"
+            )

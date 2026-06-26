@@ -78,6 +78,50 @@ class ExecutionOutput(BaseModel):
     anomaly_reports: List[StructuredAnomalyReport]
     execution_memory: List[ExecutionMemoryUpdate]
 
+class DefectAnalysis(BaseModel):
+    """Root-cause analysis for a single anomaly produced by the Defect Intelligence Agent."""
+    anomaly_id: str = Field(description="Matches StructuredAnomalyReport.anomaly_id, e.g. 'ANOM-001'")
+    confirmed_root_cause: str = Field(description="Confirmed root cause after RAG + log search")
+    resolution_action: Literal[
+        'NO_ACTION',
+        'SELF_HEAL_LOCATOR',
+        'SELF_HEAL_LOGIC',
+        'ESCALATE_HUMAN',
+    ] = Field(
+        description=(
+            "NO_ACTION: transient/false flag. "
+            "SELF_HEAL_LOCATOR: stale selector in the test. "
+            "SELF_HEAL_LOGIC: application code bug, needs a fix PR. "
+            "ESCALATE_HUMAN: systemic/complex, needs an engineer."
+        )
+    )
+    evidence: str = Field(description="Log excerpts, RAG hits, or stack traces supporting the analysis")
+    recommended_fix: str = Field(description="Plain-English description of the recommended corrective action")
+
+class DefectIntelligenceOutput(BaseModel):
+    """Wrapper returned by the Defect Intelligence Agent."""
+    analyses: List[DefectAnalysis] = Field(description="One DefectAnalysis per anomaly investigated")
+
+class QAReportSection(BaseModel):
+    """A single titled section inside the QA report."""
+    title: str = Field(description="Section heading, e.g. 'Execution Metrics'")
+    content: str = Field(description="Markdown-formatted body text for this section")
+
+class QAReport(BaseModel):
+    """Final human-readable QA report compiled by the Reporting Agent."""
+    run_id: str = Field(description="Thread ID for this pipeline run, e.g. 'qaura_run_1'")
+    generated_at: str = Field(description="ISO 8601 UTC timestamp")
+    executive_summary: str = Field(description="2-3 sentence plain-English summary of the run")
+    sections: List[QAReportSection] = Field(description="Ordered report sections")
+    overall_verdict: Literal['PASS', 'PASS_WITH_WARNINGS', 'FAIL', 'BLOCKED'] = Field(
+        description=(
+            "PASS: all tests pass. "
+            "PASS_WITH_WARNINGS: some failures but critical path ok. "
+            "FAIL: critical path broken. "
+            "BLOCKED: infra unreachable, no tests ran."
+        )
+    )
+
 class QAuraState(TypedDict):
     requirements_path: str
     test_plan: TestPlan | None
@@ -91,4 +135,6 @@ class QAuraState(TypedDict):
     coverage_assessment: CoverageConfidenceAssessment | None
     anomaly_reports: List[StructuredAnomalyReport]
     execution_memory: List[ExecutionMemoryUpdate]
-    callbacks: list
+    qa_report: QAReport | None
+    report_path: str
+    defect_analyses: List[DefectAnalysis]

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CHROMA_PATH = str(ROOT / "codebase_db")
 TESTS_DIR = ROOT / "tests"
 TEMPLATES_DIR = ROOT / "demo_app" / "templates"
+REPORTS_DIR = ROOT / "reports"
 
 
 @tool
@@ -203,8 +204,95 @@ def check_environment_health() -> str:
         "base_url": base_url
     })
 
+
+@tool
+def write_report_file(file_name: str, content: str) -> str:
+    """Write the final QA report to the reports/ directory.
+
+    Args:
+        file_name: The output file name (e.g. 'qa_report_run1.md'). Must end in .md or .html.
+        content: The full report content in Markdown or HTML.
+    """
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = os.path.basename(file_name)
+    if not (safe_name.endswith(".md") or safe_name.endswith(".html")):
+        return f"Refused: '{file_name}' must end in .md or .html"
+    path = REPORTS_DIR / safe_name
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"Report written to {path}"
+    except Exception as e:
+        return f"Failed to write report: {e}"
+
+
+@tool
+def get_timestamp() -> str:
+    """Return the current UTC timestamp in ISO 8601 format."""
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+@tool
+def read_test_file(file_path: str) -> str:
+    """Read the source code of a test file for root-cause analysis.
+
+    Args:
+        file_path: Path relative to project root (e.g. 'tests/test_auth.py').
+    """
+    path = ROOT / file_path
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return f"File not found: {file_path}"
+    except Exception as e:
+        return f"Error reading file: {e}"
+
+
+@tool
+def search_git_log(keyword: str) -> str:
+    """Search recent git commit messages for a keyword to correlate failures with code changes.
+
+    NOTE: Defined for Phase 5 use. Not included in DEFECT_TOOLS until git-diff analysis
+    is enabled. We are currently testing against requirements, not commit history.
+
+    Args:
+        keyword: The keyword to search for (e.g. a function name, module name, or error term).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", "-20", f"--grep={keyword}"],
+            capture_output=True, text=True, cwd=str(ROOT)
+        )
+        return result.stdout or "No recent commits matched."
+    except Exception as e:
+        return f"Git log search failed: {e}"
+
+
+@tool
+def read_server_log(max_lines: int = 50) -> str:
+    """Read the last N lines of the application server log for error correlation.
+
+    Args:
+        max_lines: Number of lines from the end of the log to return (default 50).
+    """
+    log_candidates = [ROOT / "server.log", ROOT / "demo_app" / "server.log"]
+    for log_path in log_candidates:
+        if log_path.exists():
+            try:
+                with open(log_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                return "".join(lines[-max_lines:])
+            except Exception as e:
+                return f"Error reading log: {e}"
+    return "No server log found. The application may not have been running during test execution."
+
+
 PLANNING_TOOLS = [read_requirements_file]
 UNIT_TOOLS= [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file]
 INTEGRATION_TOOLS = [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file]
 E2E_TOOLS = [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file, validate_selenium_locators]
 EXECUTION_TOOLS = [run_pytest_suite, check_environment_health]
+REPORTING_TOOLS = [write_report_file, get_timestamp]
+DEFECT_TOOLS = [search_codebase, read_test_file, read_server_log]
