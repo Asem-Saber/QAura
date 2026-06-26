@@ -13,6 +13,7 @@ from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.runnables import RunnableConfig
 from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 
 load_dotenv()
@@ -93,7 +94,7 @@ prompt = prompt.partial(format_instructions=_exec_parser.get_format_instructions
 agent = create_tool_calling_agent(llm, EXECUTION_TOOLS, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=EXECUTION_TOOLS, verbose=True, max_iterations=20)
 
-def execution_agent_node(state: QAuraState) -> dict:
+def execution_agent_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — executes tests and analyzes results."""
     print("--- Running Execution Agent ---")
     test_plan = state.get("test_plan")
@@ -115,13 +116,14 @@ def execution_agent_node(state: QAuraState) -> dict:
 
     compiled_tests_str = "\n".join(compiled_tests) if compiled_tests else "No tests found in state."
 
+    callbacks = (config or {}).get("callbacks", [])
     agent_result = agent_executor.invoke(
         {
             "project_summary": project_summary,
             "risk_areas": ", ".join(risk_areas),
             "compiled_tests": compiled_tests_str,
         },
-        config={"callbacks": state.get("callbacks", [])},
+        config={"callbacks": callbacks},
     )
 
     try:

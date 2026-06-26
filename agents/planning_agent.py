@@ -6,6 +6,7 @@ from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.runnables import RunnableConfig
 from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 from langgraph.types import interrupt
 
@@ -69,10 +70,10 @@ llm = ChatOpenAI(
 agent = create_tool_calling_agent(llm, PLANNING_TOOLS, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=PLANNING_TOOLS, verbose=True)
 
-def test_architect_node(state: QAuraState) -> dict:
+def test_architect_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node for Phase 1."""
     print("--- Running Test Architect ---")
-    callbacks = state.get("callbacks", [])
+    callbacks = (config or {}).get("callbacks", [])
     agent_result = agent_executor.invoke(
         {"path": state["requirements_path"]},
         config={"callbacks": callbacks},

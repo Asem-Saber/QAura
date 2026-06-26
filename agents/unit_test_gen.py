@@ -6,6 +6,7 @@ from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.runnables import RunnableConfig
 from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 
 load_dotenv()
@@ -16,62 +17,75 @@ API_MODEL = os.environ.get('UNIT_TEST_MODEL_ID', '')
 SYSTEM_PROMPT = """You are the QAura Unit Test Generator.
 
 Your job is to generate isolated, mock-heavy unit tests using **pytest** for the
-components listed in the unit_scope of the test plan.
+components listed in the test plan.
 
-WORKFLOW:
-1. You will receive the test plan with components in unit_scope.
-2. For EACH component, use the `search_codebase` tool to retrieve the actual
-   source code — functions, classes, and their signatures.
-3. Generate comprehensive pytest test files for each component.
+MANDATORY WORKFLOW — you MUST follow these steps IN ORDER for EACH component.
+Skipping any step is a failure. Do NOT return your final answer until every
+component has been through ALL steps.
 
-TEST WRITING RULES:
-- Use `pytest` as the framework. Import `pytest` and `unittest.mock` (Mock, patch, MagicMock).
-- Mock ALL external dependencies: database calls, file I/O, network requests.
-- Use descriptive test names following the pattern: test_<function>_<scenario>_<expected>.
-- Every test must have at least one `assert` statement.
-- Test these scenarios for each function:
-  * Happy path (valid inputs → expected output)
-  * Edge cases (empty strings, zero, None, boundary values)
-  * Error paths (invalid input → expected exception or error return)
+STEP 1 — RETRIEVE SOURCE CODE
+  Call `search_codebase` for each component to get the actual implementation:
+  functions, classes, signatures, dependencies, and how they interact.
+  Read the code carefully — your tests must match the real API.
+
+STEP 2 — GENERATE TESTS
+  Write a complete pytest test file for the component (rules below).
+
+STEP 3 — VALIDATE (loop until clean)
+  Call these tools in order. If ANY fails, fix the code and re-run from 3a:
+    3a. `validate_python_syntax`  → fix syntax errors
+    3b. `validate_imports`        → fix broken imports
+    3c. `check_test_structure`    → ensure test_ functions with assertions
+
+STEP 4 — WRITE TO DISK
+  Call `write_test_file` with the validated code. This is NON-OPTIONAL.
+  You have NOT completed a component until write_test_file succeeds.
+  Do NOT move to the next component until the current one is written.
+
+STEP 5 — FINAL OUTPUT
+  Only after ALL components are validated and written, return your structured
+  output. The `test_code` field must contain the FULL source code you wrote —
+  not a placeholder or summary.
+
+TEST WRITING RULES
+
+Framework & Style:
+- Use `pytest` with `unittest.mock` (Mock, patch, MagicMock).
+- Descriptive names: `test_<function>_<scenario>_<expected>`.
+- Every test MUST have at least one `assert`.
 - Use `@pytest.fixture` for reusable setup.
-- Use `@pytest.mark.parametrize` when testing multiple similar inputs.
-- Do NOT import or connect to a real database. Mock `sqlite3.connect` and cursors.
+- Use `@pytest.mark.parametrize` for multiple similar inputs.
 
-IMPORT CONVENTIONS:
-- Import the module under test using its bare module name:
-  `from auth import register_user`, `from orders import get_products`.
-  The test runner's conftest.py handles path resolution — do NOT use `demo_app.auth`.
-- For mocking database access, patch where it's looked up:
-  `@patch('auth.get_db')` or `@patch('orders.get_db')`.
+Isolation:
+- Mock ALL external dependencies: databases, file I/O, network calls, third-party services.
+- Patch at the call site (where the dependency is looked up in the module under test).
+- Never connect to real infrastructure in a unit test.
 
-FILE NAMING:
-- Name each test file as `test_<module>.py` (e.g., `test_auth.py`, `test_orders.py`).
-- One test file per component in unit_scope.
+Coverage per function:
+- Happy path (valid inputs → expected output)
+- Edge cases (empty inputs, zero, None, boundary values)
+- Error paths (invalid input → expected exception or error return)
 
-VALIDATION (MANDATORY — do this before returning your final answer):
-For EACH test file you generate, you MUST call these tools IN THIS ORDER:
-1. validate_python_syntax  — fix any syntax errors, then re-run
-2. validate_imports        — fix any broken imports, then re-run
-3. check_test_structure    — ensure test_ functions exist with assertions
-4. write_test_file         — persist the file to tests/ ONLY after 1-3 pass
+Import conventions:
+- Study the source code retrieved in Step 1 to determine the correct import paths.
+- Import the module under test using the path that matches the project structure.
 
-If any validation step fails, FIX the code and re-validate. Never call
-write_test_file with code that fails validation. Never return code you
-have not validated and written to disk.
-
-OUTPUT REQUIREMENTS:
-- test_code: include the FULL source code you wrote and validated — not a placeholder.
-- coverage_notes: briefly state what IS covered and any scenarios you intentionally skipped
-  (e.g., "Covered all public functions in auth.py. Skipped internal helper _hash_token
-  as it's tested indirectly via login_user.").
+File naming:
+- `test_<module>.py` — one test file per component.
 
 {format_instructions}
 """
 
-HUMAN_PROMPT= """Based on the test plan, please generate unit tests for the following components:
+HUMAN_PROMPT = """Generate unit tests for the following components. For EACH one, you MUST:
+1. Call search_codebase to read its source code
+2. Write tests based on the real implementation
+3. Validate with validate_python_syntax, validate_imports, check_test_structure
+4. Call write_test_file to save to disk
+Do NOT return your final answer until every component has been written to disk.
 
+Components to test:
 {components}
-    
+
 Project summary: {project_summary}
 Risk areas: {risk_areas}
 """
@@ -96,7 +110,7 @@ prompt = prompt.partial(format_instructions=parser.get_format_instructions())
 agent = create_tool_calling_agent(llm, UNIT_TOOLS, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=UNIT_TOOLS, verbose=True, max_iterations=40)
 
-def unit_test_gen_node(state: QAuraState) -> dict:
+def unit_test_gen_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — generates unit tests for components in unit_scope."""
     print("--- Running Unit Test Generator ---")
     test_plan = state.get("test_plan")
@@ -108,19 +122,20 @@ def unit_test_gen_node(state: QAuraState) -> dict:
     ]
     if not unit_components:
         return {"messages": ["No unit components found."]}
-        
+
     components_text = "\n".join(
         f"- {c.name} (file: {c.file_path}, risk: {c.risk_level}): {c.description}"
         for c in unit_components
     )
 
+    callbacks = (config or {}).get("callbacks", [])
     agent_result = agent_executor.invoke(
         {
             "components": components_text,
             "project_summary": test_plan.project_summary,
             "risk_areas": test_plan.risk_areas,
         },
-        config={"callbacks": state.get("callbacks", [])},
+        config={"callbacks": callbacks},
     )
 
     try:

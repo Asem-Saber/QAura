@@ -6,6 +6,7 @@ from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.runnables import RunnableConfig
 from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 
 load_dotenv()
@@ -111,7 +112,7 @@ prompt = prompt.partial(format_instructions=parser.get_format_instructions())
 agent = create_tool_calling_agent(llm, E2E_TOOLS, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=E2E_TOOLS, verbose=True, max_iterations=30)
 
-def e2e_gen_node(state: QAuraState) -> dict:
+def e2e_gen_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — generates E2E tests for e2e_scope."""
     print("--- Running E2E Test Generator ---")
     test_plan = state.get("test_plan")
@@ -123,19 +124,20 @@ def e2e_gen_node(state: QAuraState) -> dict:
     ]
     if not e2e_components:
         return {"messages": ["No e2e components found."]}
-        
+
     components_text = "\n".join(
         f"- {c.name} (file: {c.file_path}, risk: {c.risk_level}): {c.description}"
         for c in e2e_components
     )
 
+    callbacks = (config or {}).get("callbacks", [])
     agent_result = agent_executor.invoke(
         {
             "components": components_text,
             "project_summary": test_plan.project_summary,
             "risk_areas": test_plan.risk_areas,
         },
-        config={"callbacks": state.get("callbacks", [])},
+        config={"callbacks": callbacks},
     )
 
     try:
