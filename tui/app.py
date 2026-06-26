@@ -112,11 +112,13 @@ class QAuraApp(App):
 
         requirements_path = config["requirements_path"]
         thread_id = "qaura_tui_run"
-        graph_config = {"configurable": {"thread_id": thread_id}}
 
         handler = TUICallbackHandler(self.post_message)
         initial_state = get_initial_state(requirements_path)
-        initial_state["callbacks"] = [handler]
+        graph_config = {
+            "configurable": {"thread_id": thread_id},
+            "callbacks": [handler],
+        }
         self.post_message(PipelinePhaseChange("Phase 1: Planning"))
         self.post_message(PipelineLog("Running Test Architect agent..."))
 
