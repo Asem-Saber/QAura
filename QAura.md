@@ -22,15 +22,23 @@ To support the agents dynamically, QAura incorporates a RAG pipeline:
 2. **Vector Database:** Stores embeddings (e.g., ChromaDB, Qdrant) for semantic search.
 3. **Retrieval Tools:** Provides agents with tools like `search_codebase` or `search_api_docs` to fetch relevant context on-demand.
 
-### The Agentic Workflow Phases:
-1.  **Phase 1: Planning & Design:** The `Test Architect Agent` evaluates a Git PR or requirement set, drafting a prioritized test plan. This requires a HITL approval gate before proceeding.
-2.  **Phase 2: Creating Test Cases:** Using `RunnableParallel` routing, specialized agents (`Unit`, `Integration`, `E2E/Security`) concurrently generate tests, compiling them into a shared dictionary state.
+### Macro vs. Micro Orchestration (The Agent Loop)
+To maintain both strict control over the testing lifecycle and autonomous flexibility for individual tasks, QAura employs a dual-graph architecture:
+1. **Macro Orchestration (The Workflow Graph):** The high-level state graph that models the STLC phases (Planning -> Generation -> Execution -> Healing). It uses explicit parallel execution branches and dictionary-mapping state updates to manage the global state.
+2. **Micro Orchestration (The Agent Loop):** Each individual agent operates as its own isolated LangGraph sub-graph. Inside this sub-graph, the agent executes a cyclic **ReAct (Reason + Act) loop**. This allows the agent to continuously call tools (e.g., executing a test or querying the RAG pipeline), evaluate the tool's output, and decide on the next step autonomously before returning a finalized result back to the Macro graph.
+
+### The Continuous Macro Agent Loop (Phases 1 to 5):
+Unlike traditional linear CI/CD pipelines, QAura models the entire Software Testing Life Cycle as a continuous, autonomous **Agent Loop**. The system cycles through these phases, continuously observing, evaluating, and reacting to the codebase state until all tests pass:
+
+1.  **Phase 1: Planning & Design (Observe & Plan):** The `Test Architect Agent` evaluates a new Git PR or requirement set, drafting a prioritized test plan. This establishes the goal state (requires a HITL approval gate).
+2.  **Phase 2: Creating Test Cases (Act - Generation):** Using `RunnableParallel` routing, specialized agents (`Unit`, `Integration`, `E2E/Security`) concurrently generate tests to fulfill the plan, compiling them into a shared dictionary state.
 3.  **Phase 3: Environment Setup:** A deterministic tool provisions the sandbox, seeds the database, and readies the application for execution.
-4.  **Phase 4: Execution & Reporting:** The runner executes the compiled suite. A `Reporting Agent` compiles the execution metrics. Passing builds proceed to CI/CD. Failures are routed to the `Defect Intelligence Agent`.
-5.  **Phase 5: Intelligent Self-Healing:** The `Self-Healing Agent` acts on the analyzer's root cause diagnosis:
-    * *DOM/Locator Drift:* The test script is updated and re-run (up to a Max Retry limit).
-    * *Logic Bug:* A Git PR is drafted for the application code (requires HITL review).
-    * *Complex Bug:* Escalated to a human engineer.
+4.  **Phase 4: Execution & Reporting (Evaluate):** The runner executes the compiled suite. A `Reporting Agent` compiles metrics. Passing builds break the loop and proceed to CI/CD. Failures are routed to the `Defect Intelligence Agent` for root-cause analysis.
+5.  **Phase 5: Intelligent Self-Healing (React & Loop Back):** The `Self-Healing Agent` acts on the analyzer's diagnosis to close the loop:
+    * *DOM/Locator Drift:* The test script is updated and **the loop returns to Phase 4** to re-run the tests.
+    * *Logic Bug:* A Git PR is drafted for the application code. Once approved/merged, **the loop returns to Phase 1 or 2** to re-evaluate the code.
+    * *Missing Coverage:* If the intelligence agent finds gaps, **the loop returns to Phase 2** to draft missing tests.
+    * *Complex Bug:* Escalated to a human engineer, pausing the loop.
 
 ---
 
