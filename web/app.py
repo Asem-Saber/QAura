@@ -119,6 +119,39 @@ async def reports_page(request: Request):
     })
 
 
+@app.get("/partials/new-run-form")
+async def new_run_form(request: Request):
+    html = '''
+    <div class="fixed inset-0 z-50 flex items-center justify-center" style="background-color: rgba(0,0,0,0.6);">
+        <div class="card p-6 w-96" style="background-color: var(--bg-surface);">
+            <h2 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Start New Run</h2>
+            <form hx-post="/runs" hx-target="body">
+                <label class="block text-sm mb-1" style="color: var(--text-secondary);">Requirements file path</label>
+                <input type="text"
+                       name="requirements_path"
+                       placeholder="project_requirements.md (default)"
+                       class="w-full p-2 rounded text-sm mb-4"
+                       style="background-color: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary);">
+                <div class="flex gap-3 justify-end">
+                    <button type="button"
+                            onclick="this.closest('.fixed').remove()"
+                            class="px-4 py-2 rounded-lg text-sm"
+                            style="color: var(--text-secondary); border: 1px solid var(--border);">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="px-4 py-2 rounded-lg text-sm font-medium"
+                            style="background-color: var(--accent-purple); color: white;">
+                        Start Pipeline
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    '''
+    return HTMLResponse(html)
+
+
 @app.post("/runs")
 async def start_run(request: Request):
     form = await request.form()
