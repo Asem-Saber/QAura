@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Pipeline Dashboard — QAura{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color: var(--text-secondary);">Operations</div>
+    <h1 class="text-2xl font-bold mb-2" style="color: var(--accent-purple);">Pipeline Dashboard</h1>
+    <p class="text-sm mb-8" style="color: var(--text-secondary);">Live pipeline execution — streamed from the orchestrator.</p>
+
+    <div class="flex gap-6">
+        <!-- Timeline column -->
+        <div class="flex-1">
+            <div id="timeline" class="timeline space-y-6">
+                <p class="text-sm" style="color: var(--text-secondary);">No active run. Click <strong>+ New Run</strong> to start.</p>
+            </div>
+        </div>
+
+        <!-- Run summary sidebar -->
+        <div class="w-80 flex-shrink-0">
+            <div id="run-summary" class="card p-5">
+                <h3 class="font-semibold mb-3">Run summary</h3>
+                <p class="text-sm" style="color: var(--text-secondary);">Waiting for a run to start.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
