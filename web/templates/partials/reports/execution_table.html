@@ -1,0 +1,47 @@
+<div class="card p-5 mb-6">
+    <h3 class="font-semibold mb-3" style="color: var(--text-primary);">Execution Summary</h3>
+    {% if stats %}
+    <div class="grid grid-cols-4 gap-4 mb-4 text-center">
+        <div>
+            <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ stats.total_tests }}</div>
+            <div class="text-xs" style="color: var(--text-secondary);">Total</div>
+        </div>
+        <div>
+            <div class="text-2xl font-bold" style="color: var(--accent-green);">{{ stats.passed }}</div>
+            <div class="text-xs" style="color: var(--text-secondary);">Passed</div>
+        </div>
+        <div>
+            <div class="text-2xl font-bold" style="color: var(--accent-red);">{{ stats.failed }}</div>
+            <div class="text-xs" style="color: var(--text-secondary);">Failed</div>
+        </div>
+        <div>
+            <div class="text-2xl font-bold" style="color: var(--accent-yellow);">{{ stats.blocked }}</div>
+            <div class="text-xs" style="color: var(--text-secondary);">Blocked</div>
+        </div>
+    </div>
+    <div class="flex items-center gap-2 text-sm">
+        <span style="color: var(--text-secondary);">Critical Path:</span>
+        {% if stats.critical_path_success %}
+        <span class="badge badge-completed">passing</span>
+        {% else %}
+        <span class="badge badge-errored">failing</span>
+        {% endif %}
+    </div>
+    {% if coverage and coverage.component_scores %}
+    <div class="mt-4 border-t pt-4" style="border-color: var(--border);">
+        <h4 class="text-xs font-semibold uppercase mb-2" style="color: var(--text-secondary);">Per-Component Scores</h4>
+        {% for cs in coverage.component_scores %}
+        <div class="flex items-center gap-2 mb-1.5">
+            <span class="text-xs w-32 truncate" style="color: var(--text-primary);">{{ cs.component }}</span>
+            <div class="flex-1 h-1.5 rounded-full" style="background-color: var(--bg-surface-hover);">
+                <div class="h-1.5 rounded-full" style="background-color: {% if cs.score >= 0.8 %}var(--accent-green){% elif cs.score >= 0.5 %}var(--accent-yellow){% else %}var(--accent-red){% endif %}; width: {{ (cs.score * 100) | int }}%;"></div>
+            </div>
+            <span class="text-xs w-10 text-right" style="color: var(--text-secondary);">{{ "%.0f" | format(cs.score * 100) }}%</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="text-sm" style="color: var(--text-secondary);">No execution data yet.</p>
+    {% endif %}
+</div>

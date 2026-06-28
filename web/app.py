@@ -152,8 +152,48 @@ async def agent_logs_partial(agent_name: str):
 
 @app.get("/reports")
 async def reports_page(request: Request):
+    run_id = pipeline_manager.current_run_id
+    state = pipeline_manager.get_run_state(run_id) if run_id else None
+
+    stats = None
+    coverage = None
+    report = None
+    defect_analyses = []
+    healing_actions = []
+    anomaly_count = 0
+    healing_success = 0
+    healing_total = 0
+
+    if state:
+        stats_raw = state.get("execution_summary")
+        stats = stats_raw.model_dump() if hasattr(stats_raw, "model_dump") else stats_raw
+
+        cov_raw = state.get("coverage_assessment")
+        coverage = cov_raw.model_dump() if hasattr(cov_raw, "model_dump") else cov_raw
+
+        report_raw = state.get("qa_report")
+        report = report_raw.model_dump() if hasattr(report_raw, "model_dump") else report_raw
+
+        defect_analyses_raw = state.get("defect_analyses", [])
+        defect_analyses = [a.model_dump() if hasattr(a, "model_dump") else a for a in defect_analyses_raw]
+
+        healing_actions_raw = state.get("healing_actions", [])
+        healing_actions = [a.model_dump() if hasattr(a, "model_dump") else a for a in healing_actions_raw]
+
+        anomaly_count = len(state.get("anomaly_reports", []))
+        healing_total = len(healing_actions)
+        healing_success = sum(1 for a in healing_actions if a.get("success", False))
+
     return templates.TemplateResponse(request, "reports.html", {
         "active_page": "reports",
+        "stats": stats,
+        "coverage": coverage,
+        "report": report,
+        "defect_analyses": defect_analyses,
+        "healing_actions": healing_actions,
+        "anomaly_count": anomaly_count,
+        "healing_success": healing_success,
+        "healing_total": healing_total,
     })
 
 

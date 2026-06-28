@@ -1,0 +1,22 @@
+<div class="flex items-start gap-3 p-3 rounded mb-2" style="background-color: var(--bg-primary); border: 1px solid var(--border);">
+    <div class="mt-0.5">
+        {% if action.success %}
+        <div class="w-2.5 h-2.5 rounded-full" style="background-color: var(--accent-green);"></div>
+        {% else %}
+        <div class="w-2.5 h-2.5 rounded-full" style="background-color: var(--accent-red);"></div>
+        {% endif %}
+    </div>
+    <div class="flex-1">
+        <div class="flex items-center gap-2 mb-1">
+            <span class="text-sm font-mono" style="color: var(--text-primary);">{{ action.anomaly_id }}</span>
+            <span class="pill">{{ action.action_type }}</span>
+            <span class="badge {% if action.success %}badge-completed{% else %}badge-errored{% endif %}">
+                {% if action.success %}OK{% else %}FAILED{% endif %}
+            </span>
+        </div>
+        <p class="text-sm" style="color: var(--text-secondary);">{{ action.explanation }}</p>
+        {% if action.target_file %}
+        <div class="text-xs mt-1 font-mono" style="color: var(--accent-cyan);">{{ action.target_file }}</div>
+        {% endif %}
+    </div>
+</div>

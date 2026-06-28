@@ -1,0 +1,32 @@
+<div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="kpi-card">
+        <div class="text-xs font-semibold uppercase" style="color: var(--text-secondary);">Pass Rate</div>
+        <div class="text-3xl font-bold mt-1" style="color: var(--text-primary);">
+            {% if stats and stats.total_tests > 0 %}
+            {{ "%.1f" | format(stats.passed / stats.total_tests * 100) }}%
+            {% else %}—{% endif %}
+        </div>
+    </div>
+    <div class="kpi-card">
+        <div class="text-xs font-semibold uppercase" style="color: var(--text-secondary);">Coverage</div>
+        <div class="text-3xl font-bold mt-1" style="color: var(--text-primary);">
+            {% if coverage %}
+            {{ "%.0f" | format(coverage.overall_confidence * 100) }}%
+            {% else %}—{% endif %}
+        </div>
+    </div>
+    <div class="kpi-card">
+        <div class="text-xs font-semibold uppercase" style="color: var(--text-secondary);">Anomalies</div>
+        <div class="text-3xl font-bold mt-1" style="color: {% if anomaly_count > 0 %}var(--accent-red){% else %}var(--text-primary){% endif %};">
+            {{ anomaly_count }}
+        </div>
+    </div>
+    <div class="kpi-card">
+        <div class="text-xs font-semibold uppercase" style="color: var(--text-secondary);">Healing Rate</div>
+        <div class="text-3xl font-bold mt-1" style="color: var(--text-primary);">
+            {% if healing_total > 0 %}
+            {{ "%.0f" | format(healing_success / healing_total * 100) }}%
+            {% else %}—{% endif %}
+        </div>
+    </div>
+</div>
