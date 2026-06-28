@@ -24,6 +24,7 @@ class PipelineManager:
         self._phase: str = "idle"
         self._task: asyncio.Task | None = None
         self._agent_logs: dict[str, list[dict]] = {}
+        self._current_agent: str | None = None
 
     @property
     def is_running(self) -> bool:
@@ -37,7 +38,11 @@ class PipelineManager:
     def current_phase(self) -> str:
         return self._phase
 
-    def start_run(self, requirements_path: str) -> str:
+    @property
+    def current_agent(self) -> str | None:
+        return self._current_agent
+
+    def start_run(self, requirements_path: str | None) -> str:
         if self._running:
             raise RuntimeError("A pipeline run is already in progress")
 
@@ -99,12 +104,21 @@ class PipelineManager:
 
             final_state = graph.get_state(self._config).values
             self._phase = "complete"
+            self._current_agent = None
+            agent_events = {k: len(v) for k, v in self._agent_logs.items()}
+            self._push("stats_update", {
+                "run_id": self._run_id,
+                "phase": self._phase,
+                "stats": self._serialize(final_state.get("execution_summary")),
+                "agent_events": agent_events,
+            })
             self._push("run_complete", {
                 "execution_summary": self._serialize(final_state.get("execution_summary")),
                 "qa_report": self._serialize(final_state.get("qa_report")),
             })
         except Exception as e:
             self._phase = "errored"
+            self._current_agent = None
             self._push("agent_log", {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "agent": "system",
@@ -169,6 +183,7 @@ class PipelineManager:
                     "test_architect": "Phase 1: Planning",
                     "human_approval": "Phase 1: Approval",
                     "unit_test_gen": "Phase 2: Unit Tests",
+                    "integration_test_gen": "Phase 2: Integration Tests",
                     "e2e_gen": "Phase 2: E2E Tests",
                     "execution_agent": "Phase 3: Execution",
                     "reporting_agent": "Phase 4: Reporting",
@@ -176,10 +191,17 @@ class PipelineManager:
                     "self_healing_agent": "Phase 5: Self-Healing",
                 }
                 self._phase = phase_map.get(node_name, node_name)
+                self._current_agent = node_name
                 self._push("phase_change", {
                     "phase": self._phase,
                     "agent_name": node_name,
                     "status": "completed",
+                })
+                agent_events = {k: len(v) for k, v in self._agent_logs.items()}
+                self._push("stats_update", {
+                    "run_id": self._run_id,
+                    "phase": self._phase,
+                    "agent_events": agent_events,
                 })
 
     def _push(self, event_type: str, data: dict):

@@ -1,8 +1,7 @@
 import json
-import os
 from pathlib import Path
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -110,6 +109,7 @@ async def agents_page(request: Request):
     agents = {
         "test_architect": {"display": "Test Architect", "color": AGENT_COLORS["test_architect"]},
         "unit_test_gen": {"display": "Unit Generator", "color": AGENT_COLORS["unit_test_gen"]},
+        "integration_test_gen": {"display": "Integration Gen", "color": AGENT_COLORS["integration_test_gen"]},
         "e2e_gen": {"display": "E2E Generator", "color": AGENT_COLORS["e2e_gen"]},
         "execution_agent": {"display": "Execution Runner", "color": AGENT_COLORS["execution_agent"]},
         "reporting_agent": {"display": "Reporting", "color": AGENT_COLORS["reporting_agent"]},
@@ -138,7 +138,7 @@ async def agent_logs_partial(agent_name: str):
     color = AGENT_COLORS.get(agent_name, "#8b8fa3")
     status = "completed" if logs else "idle"
 
-    if pipeline_manager.is_running and pipeline_manager.current_phase and agent_name in pipeline_manager.current_phase.lower().replace(" ", "_"):
+    if pipeline_manager.is_running and pipeline_manager.current_agent == agent_name:
         status = "running"
 
     html = templates.get_template("partials/agents/agent_tab.html").render(
