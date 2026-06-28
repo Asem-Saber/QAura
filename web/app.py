@@ -17,6 +17,78 @@ app = FastAPI(title="QAura Dashboard")
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=WEB_DIR / "templates")
 
+AGENT_COLORS = {
+    "test_architect": "#a78bfa",
+    "unit_test_gen": "#4ade80",
+    "integration_test_gen": "#60a5fa",
+    "e2e_gen": "#fbbf24",
+    "execution_agent": "#f97316",
+    "reporting_agent": "#06b6d4",
+    "defect_intelligence_agent": "#f87171",
+    "self_healing_agent": "#e879f9",
+    "human_approval": "#8b8fa3",
+    "system": "#8b8fa3",
+}
+
+AGENT_DISPLAY_NAMES = {
+    "test_architect": "Test Architect",
+    "unit_test_gen": "Unit Generator",
+    "integration_test_gen": "Integration Gen",
+    "e2e_gen": "E2E Generator",
+    "execution_agent": "Execution Runner",
+    "reporting_agent": "Reporting",
+    "defect_intelligence_agent": "Defect Intelligence",
+    "self_healing_agent": "Self-Healing",
+    "human_approval": "HITL Approval",
+    "system": "System",
+}
+
+
+def _render_sse_event(event, templates_instance) -> dict:
+    """Render a PipelineEvent into an SSE dict with event type and HTML data."""
+    etype = event.event_type
+    data = event.data
+
+    if etype == "agent_log":
+        agent = data.get("agent", "system")
+        ts_raw = data.get("timestamp", "")
+        ts_short = ts_raw[11:19] if len(ts_raw) > 19 else ts_raw
+        html = templates_instance.get_template("partials/timeline/log_entry.html").render(
+            timestamp_short=ts_short,
+            agent=agent,
+            agent_display=AGENT_DISPLAY_NAMES.get(agent, agent),
+            agent_color=AGENT_COLORS.get(agent, "#8b8fa3"),
+            message=data.get("message", ""),
+            status="running",
+            pills=[f"tool:{tc['name']}" for tc in data.get("tool_calls", [])],
+        )
+        return {"event": etype, "data": html}
+
+    elif etype == "phase_change":
+        status = data.get("status", "running")
+        html = templates_instance.get_template("partials/timeline/phase_badge.html").render(
+            phase=data.get("phase", ""),
+            status=status,
+        )
+        return {"event": etype, "data": html}
+
+    elif etype == "plan_ready":
+        html = templates_instance.get_template("partials/timeline/approval_card.html").render(
+            plan=data.get("plan", {}),
+            run_id=pipeline_manager.current_run_id,
+        )
+        return {"event": etype, "data": html}
+
+    elif etype == "run_complete":
+        html = '<div class="flex items-center gap-2 px-4 py-2 rounded-lg" style="background-color: var(--bg-surface); border: 1px solid var(--border);"><span class="badge badge-completed">completed</span><span class="text-sm font-medium">Pipeline Complete</span></div>'
+        return {"event": etype, "data": html}
+
+    elif etype == "stats_update":
+        html = templates_instance.get_template("partials/summary/run_summary.html").render(**data)
+        return {"event": etype, "data": html}
+
+    return {"event": etype, "data": json.dumps(data)}
+
 
 @app.get("/")
 async def index():
@@ -25,8 +97,11 @@ async def index():
 
 @app.get("/dashboard")
 async def dashboard(request: Request):
+    run_id = request.query_params.get("run_id") or pipeline_manager.current_run_id
     return templates.TemplateResponse(request, "dashboard.html", {
         "active_page": "dashboard",
+        "run_id": run_id if pipeline_manager.is_running else None,
+        "phase": pipeline_manager.current_phase,
     })
 
 
@@ -67,8 +142,7 @@ async def start_run(request: Request):
 async def sse_pipeline(run_id: str, request: Request):
     async def event_generator():
         async for event in pipeline_manager.get_event_stream(run_id):
-            data = json.dumps(event.data)
-            yield {"event": event.event_type, "data": data}
+            yield _render_sse_event(event, templates)
 
     return EventSourceResponse(event_generator())
 
