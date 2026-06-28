@@ -23,6 +23,7 @@ class PipelineManager:
         self._running: bool = False
         self._phase: str = "idle"
         self._task: asyncio.Task | None = None
+        self._agent_logs: dict[str, list[dict]] = {}
 
     @property
     def is_running(self) -> bool:
@@ -48,6 +49,7 @@ class PipelineManager:
         self._approval_data = {}
         self._running = True
         self._phase = "initializing"
+        self._agent_logs = {}
 
         initial_state = get_initial_state(requirements_path)
         self._task = asyncio.create_task(self._run(initial_state))
@@ -136,8 +138,24 @@ class PipelineManager:
                             "message": message_text,
                             "tool_calls": tool_calls,
                         })
+                        if agent_name not in self._agent_logs:
+                            self._agent_logs[agent_name] = []
+                        self._agent_logs[agent_name].append({
+                            "timestamp": ts,
+                            "agent": agent_name,
+                            "message": message_text,
+                            "tool_calls": tool_calls,
+                        })
                 elif node_name == "tools":
                     self._push("agent_log", {
+                        "timestamp": ts,
+                        "agent": agent_name,
+                        "message": "Tool execution finished.",
+                        "tool_calls": [],
+                    })
+                    if agent_name not in self._agent_logs:
+                        self._agent_logs[agent_name] = []
+                    self._agent_logs[agent_name].append({
                         "timestamp": ts,
                         "agent": agent_name,
                         "message": "Tool execution finished.",
@@ -182,6 +200,12 @@ class PipelineManager:
             if event is None:
                 break
             yield event
+
+    def get_agent_logs(self, agent_name: str) -> list[dict]:
+        return self._agent_logs.get(agent_name, [])
+
+    def get_all_agent_names(self) -> list[str]:
+        return list(self._agent_logs.keys())
 
     def get_run_state(self, run_id: str) -> dict | None:
         if run_id != self._run_id or self._config is None:

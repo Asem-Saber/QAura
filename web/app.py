@@ -107,9 +107,47 @@ async def dashboard(request: Request):
 
 @app.get("/agents")
 async def agents_page(request: Request):
+    agents = {
+        "test_architect": {"display": "Test Architect", "color": AGENT_COLORS["test_architect"]},
+        "unit_test_gen": {"display": "Unit Generator", "color": AGENT_COLORS["unit_test_gen"]},
+        "e2e_gen": {"display": "E2E Generator", "color": AGENT_COLORS["e2e_gen"]},
+        "execution_agent": {"display": "Execution Runner", "color": AGENT_COLORS["execution_agent"]},
+        "reporting_agent": {"display": "Reporting", "color": AGENT_COLORS["reporting_agent"]},
+        "defect_intelligence_agent": {"display": "Defect Intelligence", "color": AGENT_COLORS["defect_intelligence_agent"]},
+        "self_healing_agent": {"display": "Self-Healing", "color": AGENT_COLORS["self_healing_agent"]},
+    }
+
+    first_agent_key = next(iter(agents))
+    first_agent_logs = pipeline_manager.get_agent_logs(first_agent_key)
+
     return templates.TemplateResponse(request, "agents.html", {
         "active_page": "agents",
+        "agents": agents,
+        "first_agent": first_agent_key if first_agent_logs else None,
+        "agent_display": agents[first_agent_key]["display"],
+        "agent_color": agents[first_agent_key]["color"],
+        "agent_status": "completed" if first_agent_logs else "idle",
+        "logs": first_agent_logs,
     })
+
+
+@app.get("/partials/agents/{agent_name}/logs")
+async def agent_logs_partial(agent_name: str):
+    logs = pipeline_manager.get_agent_logs(agent_name)
+    display = AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
+    color = AGENT_COLORS.get(agent_name, "#8b8fa3")
+    status = "completed" if logs else "idle"
+
+    if pipeline_manager.is_running and pipeline_manager.current_phase and agent_name in pipeline_manager.current_phase.lower().replace(" ", "_"):
+        status = "running"
+
+    html = templates.get_template("partials/agents/agent_tab.html").render(
+        agent_display=display,
+        agent_color=color,
+        agent_status=status,
+        logs=logs,
+    )
+    return HTMLResponse(html)
 
 
 @app.get("/reports")
