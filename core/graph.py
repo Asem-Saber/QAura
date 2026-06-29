@@ -15,6 +15,7 @@ import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
@@ -31,10 +32,19 @@ from agents.execution_agent import execution_agent_node
 from agents.reporting_agent import reporting_agent_node
 from agents.defect_intelligence_agent import defect_intelligence_agent_node
 from agents.self_healing_agent import self_healing_agent_node
+from knowledge_graph.graph_store import DefectKnowledgeGraph
+from knowledge_graph import graph_builder
+from knowledge_graph.graph_query import set_graph as _set_kg_ref
 
 load_dotenv()
 
 MAX_HEALING_ITERATIONS = 3
+
+KG_PATH = ROOT / "knowledge_graph" / "defect_graph.json"
+
+_kg = DefectKnowledgeGraph()
+_kg.load(KG_PATH)
+_set_kg_ref(_kg)
 
 
 # ---------------------------------------------------------------------------
@@ -65,18 +75,68 @@ def _route_after_healing(state: QAuraState) -> str:
     return END
 
 
+async def _test_architect_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
+    result = await test_architect_node(state, config)
+    plan = result.get("test_plan") or state.get("test_plan")
+    if plan:
+        graph_builder.build_from_test_plan(_kg, plan)
+        req_path = state.get("requirements_path", "")
+        project_root = Path(req_path).parent if req_path else ROOT
+        if project_root == ROOT:
+            project_root = ROOT / "demo_app"
+        graph_builder.build_dependencies(_kg, project_root.parent if (project_root / "__init__.py").exists() else project_root)
+        _kg.save(KG_PATH)
+    return result
+
+
+async def _unit_test_gen_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
+    result = await unit_test_gen_node(state, config)
+    tests = result.get("unit_tests", [])
+    if tests:
+        graph_builder.build_from_generated_tests(_kg, tests, "unit")
+        _kg.save(KG_PATH)
+    return result
+
+
+async def _e2e_gen_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
+    result = await e2e_gen_node(state, config)
+    tests = result.get("e2e_tests", [])
+    if tests:
+        graph_builder.build_from_generated_tests(_kg, tests, "e2e")
+        _kg.save(KG_PATH)
+    return result
+
+
+async def _execution_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
+    result = await execution_agent_node(state, config)
+    anomalies = result.get("anomaly_reports", [])
+    if anomalies:
+        graph_builder.build_from_anomalies(_kg, anomalies)
+        _kg.save(KG_PATH)
+    return result
+
+
+async def _self_healing_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
+    result = await self_healing_agent_node(state, config)
+    actions = result.get("healing_actions", [])
+    if actions:
+        graph_builder.build_from_healing(_kg, actions)
+        _kg.save(KG_PATH)
+    return result
+
+
 def build_graph() -> StateGraph:
     builder = StateGraph(QAuraState)
 
     # --- Nodes ---
-    builder.add_node("test_architect", test_architect_node)
+    builder.add_node("test_architect", _test_architect_with_kg)
     builder.add_node("human_approval", hitl_approval_node)
-    builder.add_node("unit_test_gen", unit_test_gen_node)
-    builder.add_node("e2e_gen", e2e_gen_node)
-    builder.add_node("execution_agent", execution_agent_node)
+    builder.add_node("unit_test_gen", _unit_test_gen_with_kg)
+    builder.add_node("e2e_gen", _e2e_gen_with_kg)
+    builder.add_node("execution_agent", _execution_with_kg)
     builder.add_node("reporting_agent", reporting_agent_node)
     builder.add_node("defect_intelligence_agent", defect_intelligence_agent_node)
-    builder.add_node("self_healing_agent", self_healing_agent_node)
+    builder.add_node("self_healing_agent", _self_healing_with_kg)
 
     # --- Edges: Phase 1 (Planning) ---
     builder.add_edge(START, "test_architect")
