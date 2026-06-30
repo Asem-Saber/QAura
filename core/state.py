@@ -102,6 +102,37 @@ class DefectIntelligenceOutput(BaseModel):
     """Wrapper returned by the Defect Intelligence Agent."""
     analyses: List[DefectAnalysis] = Field(description="One DefectAnalysis per anomaly investigated")
 
+class HealingAction(BaseModel):
+    """A single corrective action taken by the Self-Healing Agent."""
+    anomaly_id: str = Field(description="Matches DefectAnalysis.anomaly_id")
+    action_type: Literal[
+        'NO_ACTION',
+        'SELF_HEAL_LOCATOR',
+        'SELF_HEAL_LOGIC',
+        'ESCALATE_HUMAN',
+    ] = Field(description="Resolution action taken")
+    target_file: str = Field(description="Relative path to the file that was modified (or '' if no file change)")
+    original_code: str = Field(default="", description="The original code snippet that was replaced")
+    patched_code: str = Field(default="", description="The new code snippet written to the file")
+    explanation: str = Field(description="Plain-English explanation of what was done and why")
+    success: bool = Field(default=True, description="Whether the patch was applied without errors")
+
+class SelfHealingOutput(BaseModel):
+    """Wrapper returned by the Self-Healing Agent."""
+    actions: List[HealingAction] = Field(description="One HealingAction per DefectAnalysis processed")
+    loop_decision: Literal[
+        'RE_EXECUTE',
+        'RE_PLAN',
+        'ESCALATE',
+        'DONE',
+    ] = Field(description=(
+        "RE_EXECUTE: test was fixed, re-run tests. "
+        "RE_PLAN: app code was fixed, re-evaluate. "
+        "ESCALATE: needs human intervention. "
+        "DONE: nothing to heal."
+    ))
+    escalation_summary: str = Field(default="", description="Human-readable summary if escalation is needed")
+
 class QAReportSection(BaseModel):
     """A single titled section inside the QA report."""
     title: str = Field(description="Section heading, e.g. 'Execution Metrics'")
@@ -138,3 +169,6 @@ class QAuraState(TypedDict):
     qa_report: QAReport | None
     report_path: str
     defect_analyses: List[DefectAnalysis]
+    healing_actions: List[HealingAction]
+    loop_decision: str
+    healing_iterations: int

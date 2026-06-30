@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 from core.state import QAuraState
 from agents.planning_agent import test_architect_node, hitl_approval_node
 from agents.unit_test_gen import unit_test_gen_node
+from agents.integration_test_gen import integration_gen_node
 from agents.e2e_test_gen import e2e_gen_node
 from agents.execution_agent import execution_agent_node
 from agents.reporting_agent import reporting_agent_node
@@ -98,6 +99,15 @@ async def _unit_test_gen_with_kg(state: QAuraState, config: RunnableConfig | Non
     return result
 
 
+async def _integration_gen_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
+    result = await integration_gen_node(state, config)
+    tests = result.get("integration_tests", [])
+    if tests:
+        graph_builder.build_from_generated_tests(_kg, tests, "integration")
+        _kg.save(KG_PATH)
+    return result
+
+
 async def _e2e_gen_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     result = await e2e_gen_node(state, config)
     tests = result.get("e2e_tests", [])
@@ -108,7 +118,7 @@ async def _e2e_gen_with_kg(state: QAuraState, config: RunnableConfig | None = No
 
 
 async def _execution_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
-    result = await execution_agent_node(state, config)
+    result = execution_agent_node(state, config)
     anomalies = result.get("anomaly_reports", [])
     if anomalies:
         graph_builder.build_from_anomalies(_kg, anomalies)
@@ -132,6 +142,7 @@ def build_graph() -> StateGraph:
     builder.add_node("test_architect", _test_architect_with_kg)
     builder.add_node("human_approval", hitl_approval_node)
     builder.add_node("unit_test_gen", _unit_test_gen_with_kg)
+    builder.add_node("integration_gen", _integration_gen_with_kg)
     builder.add_node("e2e_gen", _e2e_gen_with_kg)
     builder.add_node("execution_agent", _execution_with_kg)
     builder.add_node("reporting_agent", reporting_agent_node)
@@ -148,7 +159,8 @@ def build_graph() -> StateGraph:
     )
 
     # --- Edges: Phase 2 (Generation) → Phase 3 (Execution) ---
-    builder.add_edge("unit_test_gen", "e2e_gen")
+    builder.add_edge("unit_test_gen", "integration_gen")
+    builder.add_edge("integration_gen", "e2e_gen")
     builder.add_edge("e2e_gen", "execution_agent")
 
     # --- Edges: Phase 4 (Reporting → Defect Analysis) ---
