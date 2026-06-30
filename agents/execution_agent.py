@@ -10,11 +10,15 @@ from core.state import (
 )
 from core.tools import EXECUTION_TOOLS
 from core.output_parsing import robust_parse
+from core.memory_db import log_execution
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from typing import Annotated
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnableConfig
-from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 
 load_dotenv()
 API_KEY = os.environ.get('EXECUTION_AGENT_API_KEY', '')
@@ -26,15 +30,23 @@ Your mission is to act as an autonomous orchestrator that evaluates, prioritizes
 
 PHASE 1 — TOOL CALLS (you MUST call tools before producing your final answer):
 
-1. Call `check_environment_health` to verify infrastructure readiness.
-   - If the server is unreachable or DB is disconnected, record all tests as BLOCKED
-     and classify the anomaly as INFRASTRUCTURE. Do NOT call run_pytest_suite.
+1. Check the Compiled Test Suites for any [E2E] or [INTEGRATION] tests.
+   - If present, call `check_environment_health` to verify infrastructure readiness.
+     - If the server is unreachable or DB is disconnected, record all tests as BLOCKED
+       and classify the anomaly as INFRASTRUCTURE. Do NOT call run_pytest_suite.
+   - If only [UNIT] tests are present, skip the environment check — unit tests are
+     fully isolated and do not require external infrastructure.
 
-2. If the environment is healthy, call `run_pytest_suite` to execute the tests.
+2. If you are cleared to proceed (environment is healthy, or unit-only run),
+   call `run_pytest_suite` to execute the tests.
    - Pass 'tests/' to run the entire suite, or 'tests/<filename>.py' for individual files.
    - Prioritize high-risk components first when running individually.
 
 3. Read and analyze the raw pytest output from each run.
+
+4. After execution, call `query_test_history` for each test file that appeared in the run.
+   Use the historical data to enrich your analysis — compare current results against past
+   flakiness rates and durations.
 
 PHASE 2 — ANALYSIS (after all tool calls are complete):
 
@@ -55,7 +67,8 @@ SCORING RULES (use these to populate the output fields):
   Group tests by their target component from the file names or test plan.
 - identified_gaps: list components from the test plan that have NO test files present,
   or components where all tests are blocked/errored.
-- flaky_flag_raised: always false (single run — no flakiness signal available).
+- flaky_flag_raised: set to true if query_test_history returned a flakiness_rate > 0.1 for this test,
+  OR if the test passed in a previous run but failed now without code changes.
 - retry_count: always 0 (no retry configured in this environment).
 - anomaly_id: use sequential format "ANOM-001", "ANOM-002", etc.
 
@@ -82,17 +95,26 @@ llm = ChatOpenAI(
     temperature=0.2
 )
 
+llm_with_tools = llm.bind_tools(EXECUTION_TOOLS)
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+def call_model(state: AgentState):
+    response = llm_with_tools.invoke(state["messages"])
+    return {"messages": [response]}
+
+builder = StateGraph(AgentState)
+builder.add_node("agent", call_model)
+builder.add_node("tools", ToolNode(EXECUTION_TOOLS))
+builder.add_edge(START, "agent")
+builder.add_conditional_edges("agent", tools_condition)
+builder.add_edge("tools", "agent")
+agent_subgraph = builder.compile()
+
 _exec_parser = PydanticOutputParser(pydantic_object=ExecutionOutput)
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", SYSTEM_PROMPT),
-    ("human", HUMAN_PROMPT),
-    MessagesPlaceholder(variable_name="agent_scratchpad"),
-])
-prompt = prompt.partial(format_instructions=_exec_parser.get_format_instructions())
 
-agent = create_tool_calling_agent(llm, EXECUTION_TOOLS, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=EXECUTION_TOOLS, verbose=True, max_iterations=20)
 
 def execution_agent_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — executes tests and analyzes results."""
@@ -117,17 +139,36 @@ def execution_agent_node(state: QAuraState, config: RunnableConfig | None = None
     compiled_tests_str = "\n".join(compiled_tests) if compiled_tests else "No tests found in state."
 
     callbacks = (config or {}).get("callbacks", [])
-    agent_result = agent_executor.invoke(
-        {
-            "project_summary": project_summary,
-            "risk_areas": ", ".join(risk_areas),
-            "compiled_tests": compiled_tests_str,
-        },
-        config={"callbacks": callbacks},
+    system_msg = SYSTEM_PROMPT.format(format_instructions=_exec_parser.get_format_instructions())
+    human_msg = HUMAN_PROMPT.format(
+        project_summary= project_summary,
+            risk_areas= ", ".join(risk_areas),
+            compiled_tests= compiled_tests_str,
+    )
+
+    agent_result = agent_subgraph.invoke(
+        {"messages": [("system", system_msg), ("user", human_msg)]},
+        config={"callbacks": callbacks, "recursion_limit": 60},
     )
 
     try:
-        output = robust_parse(agent_result["output"], ExecutionOutput, llm)
+        output = robust_parse(agent_result["messages"][-1].content, ExecutionOutput, llm)
+
+        run_id = (config or {}).get("configurable", {}).get("thread_id", "unknown_run")
+        failed_test_ids = {a.test_id for a in output.anomaly_reports}
+        anomaly_map = {a.test_id: a for a in output.anomaly_reports}
+
+        for mem in output.execution_memory:
+            status = "failed" if mem.test_id in failed_test_ids else "passed"
+            anomaly = anomaly_map.get(mem.test_id)
+            log_execution(
+                test_id=mem.test_id,
+                run_id=run_id,
+                status=status,
+                duration_ms=mem.duration_ms,
+                stack_trace=anomaly.correlated_stack_trace if anomaly else "",
+                classification=anomaly.classification if anomaly else "",
+            )
 
         return {
             "execution_summary": output.execution_summary,
@@ -142,7 +183,7 @@ def execution_agent_node(state: QAuraState, config: RunnableConfig | None = None
         }
     except Exception as e:
         print(f"Error parsing execution output: {e}")
-        print("Raw output:", agent_result["output"])
+        print("Raw output:", agent_result["messages"][-1].content)
         return {
             "environment_status": {"parsed": False, "error": str(e)},
             "messages": [f"Execution Agent encountered an error during parsing: {e}"]
