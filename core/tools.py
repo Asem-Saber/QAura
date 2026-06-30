@@ -2,6 +2,7 @@ import os
 import ast
 import importlib.util
 import re
+import json
 import glob
 import subprocess
 import urllib.request
@@ -11,6 +12,13 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
+from core.memory_db import query_test_history as _query_history, log_healing_action as _log_healing
+from knowledge_graph.graph_query import (
+    query_risk_propagation,
+    query_similar_defects,
+    query_healing_patterns,
+    query_component_health,
+)
 
 load_dotenv()
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,6 +41,21 @@ def read_requirements_file(file_path: str) -> str:
     except Exception as e:
         return f"Error reading file: {e}"
 
+_vectorstore = None
+
+def _get_vectorstore():
+    global _vectorstore
+    if _vectorstore is None:
+        embeddings = OllamaEmbeddings(
+            model=os.environ.get('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text'),
+            base_url=os.environ.get('OLLAMA_ENDPOINT', 'http://localhost:11434'),
+        )
+        _vectorstore = Chroma(
+            persist_directory=CHROMA_PATH,
+            embedding_function=embeddings,
+        )
+    return _vectorstore
+
 @tool
 def search_codebase(query: str) -> str:
     """Search the codebase vector database for relevant source code.
@@ -44,22 +67,17 @@ def search_codebase(query: str) -> str:
     Args:
         query: Natural language description of what code to find.
     """
-
-    embeddings = OllamaEmbeddings(
-        model=os.environ['OLLAMA_EMBEDDING_MODEL'],
-        base_url=os.environ['OLLAMA_ENDPOINT'],
-    )
-
-    vectorstore = Chroma(
-        persist_directory=CHROMA_PATH,
-        embedding_function=embeddings,
-    )
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
-    docs = retriever.invoke(query)
-    return "\n\n---\n\n".join(
-        f"**Source: {doc.metadata.get('source', 'unknown')}**\n{doc.page_content}"
-        for doc in docs
-    )
+    
+    try:
+        vectorstore = _get_vectorstore()
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+        docs = retriever.invoke(query)
+        return "\n\n---\n\n".join(
+            f"**Source: {doc.metadata.get('source', 'unknown')}**\n{doc.page_content}"
+            for doc in docs
+        )
+    except Exception as e:
+        return f"Error querying codebase database: {e}"
 
 
 @tool
@@ -116,25 +134,6 @@ def check_test_structure(code: str) -> str:
     if issues:
         result += "\nWarnings:\n" + "\n".join(f"  - {i}" for i in issues)
     return result
-
-
-@tool
-def validate_selenium_locators(test_code: str) -> str:
-    """Check that data-testid selectors used in Selenium tests match actual attributes in the HTML templates."""
-    used = set(re.findall(r"data-testid=['\"]([^'\"]+)['\"]", test_code))
-    existing = set()
-    for html_file in glob.glob(str(TEMPLATES_DIR / "**" / "*.html"), recursive=True):
-        with open(html_file, "r", encoding="utf-8") as f:
-            existing.update(re.findall(r'data-testid=["\']([^"\']+)["\']', f.read()))
-    missing = used - existing
-    if missing:
-        return (
-            "These data-testid values are NOT in the HTML templates:\n"
-            + "\n".join(f"  - '{m}'" for m in sorted(missing))
-            + "\n\nAvailable data-testid values:\n"
-            + "\n".join(f"  - '{e}'" for e in sorted(existing))
-        )
-    return f"All {len(used)} data-testid locators match the HTML templates."
 
 
 @tool
@@ -289,10 +288,135 @@ def read_server_log(max_lines: int = 50) -> str:
     return "No server log found. The application may not have been running during test execution."
 
 
-PLANNING_TOOLS = [read_requirements_file]
+@tool
+def read_source_file(file_path: str) -> str:
+    """Read any source file from the project for patching.
+
+    Args:
+        file_path: Relative path from project root (e.g. 'demo_app/auth.py' or 'tests/test_auth.py').
+    """
+    path = ROOT / file_path
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return f"File not found: {file_path}"
+    except Exception as e:
+        return f"Error reading file: {e}"
+
+
+@tool
+def patch_file(file_path: str, old_code: str, new_code: str) -> str:
+    """Replace a specific code snippet in a file with a corrected version.
+
+    The tool finds the EXACT `old_code` substring in the file and replaces it with `new_code`.
+    If `old_code` is not found verbatim, the patch fails safely.
+
+    Args:
+        file_path: Relative path from project root.
+        old_code: The exact code snippet to replace (copy-paste from the file).
+        new_code: The corrected code to insert in its place.
+    """
+    path = ROOT / file_path
+    try:
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return f"FAIL: File not found: {file_path}"
+
+    if old_code not in content:
+        return (
+            f"FAIL: old_code not found in {file_path}. "
+            "Ensure you copied the exact text including whitespace."
+        )
+
+    occurrences = content.count(old_code)
+    if occurrences > 1:
+        return (
+            f"FAIL: old_code appears {occurrences} times in {file_path}. "
+            "Provide a larger snippet for unique matching."
+        )
+
+    new_content = content.replace(old_code, new_code, 1)
+    path.write_text(new_content, encoding="utf-8")
+    return f"SUCCESS: Patched {file_path} ({len(old_code)} chars -> {len(new_code)} chars)"
+
+
+@tool
+def run_single_test(test_path: str) -> str:
+    """Run a single test file to verify a patch works.
+
+    Args:
+        test_path: Relative path to the test file (e.g. 'tests/test_auth.py').
+    """
+    path = ROOT / test_path
+    try:
+        result = subprocess.run(
+            ["python", "-m", "pytest", str(path), "-v", "--tb=short"],
+            capture_output=True, text=True, timeout=60
+        )
+        output = result.stdout
+        if result.stderr:
+            output += f"\nSTDERR:\n{result.stderr}"
+        return output
+    except subprocess.TimeoutExpired:
+        return f"Timeout after 60s running {test_path}"
+    except Exception as e:
+        return f"Failed to run test: {e}"
+
+
+@tool
+def query_test_history(test_id: str) -> str:
+    """Query the long-term memory database for historical execution data on a test.
+
+    Returns flakiness rate, pass/fail counts, and average duration across all recorded runs.
+
+    Args:
+        test_id: Path to the test file (e.g. 'tests/test_auth.py').
+    """
+    return json.dumps(_query_history(test_id), indent=2)
+
+
+@tool
+def log_healing_action(
+    anomaly_id: str,
+    action_type: str,
+    target_file: str = "",
+    original_code: str = "",
+    patched_code: str = "",
+    explanation: str = "",
+    success: bool = True,
+) -> str:
+    """Record a self-healing action in the long-term memory database.
+
+    Call this after successfully patching a test or source file so the healing ledger
+    tracks what was changed and why.
+
+    Args:
+        anomaly_id: The anomaly ID this healing addresses (e.g. 'ANOM-001').
+        action_type: One of 'SELF_HEAL_LOCATOR', 'SELF_HEAL_LOGIC', 'ESCALATE_HUMAN', 'NO_ACTION'.
+        target_file: Relative path to the file that was modified.
+        original_code: The code snippet that was replaced.
+        patched_code: The new code snippet written.
+        explanation: Plain-English explanation of the fix.
+        success: Whether the patch was applied successfully.
+    """
+    _log_healing(
+        anomaly_id=anomaly_id,
+        action_type=action_type,
+        target_file=target_file,
+        original_code=original_code,
+        patched_code=patched_code,
+        explanation=explanation,
+        success=success,
+    )
+    return f"Healing action for {anomaly_id} logged successfully."
+
+
+PLANNING_TOOLS = [read_requirements_file, query_risk_propagation]
 UNIT_TOOLS= [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file]
 INTEGRATION_TOOLS = [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file]
-E2E_TOOLS = [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file, validate_selenium_locators]
-EXECUTION_TOOLS = [run_pytest_suite, check_environment_health]
-REPORTING_TOOLS = [write_report_file, get_timestamp]
-DEFECT_TOOLS = [search_codebase, read_test_file, read_server_log]
+E2E_TOOLS = [search_codebase, validate_python_syntax, validate_imports, check_test_structure, write_test_file]
+EXECUTION_TOOLS = [run_pytest_suite, check_environment_health, query_test_history]
+REPORTING_TOOLS = [write_report_file, get_timestamp, query_component_health]
+DEFECT_TOOLS = [search_codebase, read_test_file, read_server_log, query_test_history, query_similar_defects]
+SELF_HEALING_TOOLS = [search_codebase, read_source_file, read_test_file, patch_file, run_single_test, validate_python_syntax, log_healing_action, query_test_history, query_healing_patterns]

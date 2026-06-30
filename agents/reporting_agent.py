@@ -4,10 +4,13 @@ from core.state import QAuraState, QAReport
 from core.tools import REPORTING_TOOLS
 from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from typing import Annotated
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnableConfig
-from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
 
 load_dotenv()
 API_KEY = os.environ.get('REPORTING_API_KEY', '')
@@ -29,8 +32,11 @@ YOUR STEPS:
      ID | Component | Classification | Root Cause Hypothesis.
      If no anomalies, write "No anomalies detected."
    - **Risk Verdict**: State PASS / PASS_WITH_WARNINGS / FAIL / BLOCKED with one sentence justification.
+   - **Component Health**: Call `query_component_health` for each component mentioned in the
+     anomaly log or coverage assessment. Include a Component Health table with columns:
+     Component | Health Score | Defect Count | Healing Rate | Test Coverage.
 
-3. Call `write_report_file` with file_name='qa_report_{run_id}.md' and the full Markdown content.
+3. Call `write_report_file` with file_name='qa_report_{{run_id}}.md' and the full Markdown content.
 4. Your FINAL response must be a single valid JSON object — no markdown fences, no explanation.
 
 VERDICT RULES (apply strictly):
@@ -61,12 +67,6 @@ Risk Areas: {risk_areas}
 
 _parser = PydanticOutputParser(pydantic_object=QAReport)
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", SYSTEM_PROMPT),
-    ("human", HUMAN_PROMPT),
-    MessagesPlaceholder(variable_name="agent_scratchpad"),
-])
-prompt = prompt.partial(format_instructions=_parser.get_format_instructions())
 
 llm = ChatOpenAI(
     base_url=API_ENDPOINT,
@@ -75,8 +75,23 @@ llm = ChatOpenAI(
     temperature=0.1,
 )
 
-agent = create_tool_calling_agent(llm, REPORTING_TOOLS, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=REPORTING_TOOLS, verbose=True, max_iterations=10)
+llm_with_tools = llm.bind_tools(REPORTING_TOOLS)
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+def call_model(state: AgentState):
+    response = llm_with_tools.invoke(state["messages"])
+    return {"messages": [response]}
+
+builder = StateGraph(AgentState)
+builder.add_node("agent", call_model)
+builder.add_node("tools", ToolNode(REPORTING_TOOLS))
+builder.add_edge(START, "agent")
+builder.add_conditional_edges("agent", tools_condition)
+builder.add_edge("tools", "agent")
+agent_subgraph = builder.compile()
+
 
 
 def reporting_agent_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
@@ -91,29 +106,32 @@ def reporting_agent_node(state: QAuraState, config: RunnableConfig | None = None
     run_id = (config or {}).get("configurable", {}).get("thread_id", "qaura_run_unknown")
 
     callbacks = (config or {}).get("callbacks", [])
-    agent_result = agent_executor.invoke(
-        {
-            "run_id": run_id,
-            "execution_summary": (
+    system_msg = SYSTEM_PROMPT.format(format_instructions=_parser.get_format_instructions())
+    human_msg = HUMAN_PROMPT.format(
+        run_id= run_id,
+            execution_summary= (
                 execution_summary.model_dump_json(indent=2)
                 if execution_summary else "{}"
             ),
-            "coverage_assessment": (
+            coverage_assessment= (
                 coverage_assessment.model_dump_json(indent=2)
                 if coverage_assessment else "{}"
             ),
-            "anomaly_reports": (
+            anomaly_reports= (
                 "\n".join(r.model_dump_json() for r in anomaly_reports)
                 if anomaly_reports else "None"
             ),
-            "project_summary": test_plan.project_summary if test_plan else "N/A",
-            "risk_areas": ", ".join(test_plan.risk_areas) if test_plan else "N/A",
-        },
+            project_summary= test_plan.project_summary if test_plan else "N/A",
+            risk_areas= ", ".join(test_plan.risk_areas) if test_plan else "N/A",
+    )
+
+    agent_result = agent_subgraph.invoke(
+        {"messages": [("system", system_msg), ("user", human_msg)]},
         config={"callbacks": callbacks},
     )
 
     try:
-        output = robust_parse(agent_result["output"], QAReport, llm)
+        output = robust_parse(agent_result["messages"][-1].content, QAReport, llm)
         return {
             "qa_report": output,
             "report_path": f"reports/qa_report_{run_id}.md",
@@ -124,7 +142,7 @@ def reporting_agent_node(state: QAuraState, config: RunnableConfig | None = None
         }
     except Exception as e:
         print(f"Error parsing Reporting Agent output: {e}")
-        print("Raw output:", agent_result["output"])
+        print("Raw output:", agent_result["messages"][-1].content)
         return {
             "qa_report": None,
             "report_path": "",

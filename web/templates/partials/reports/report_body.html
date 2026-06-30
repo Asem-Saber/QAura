@@ -1,0 +1,21 @@
+<div class="card p-5 mb-6">
+    <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold" style="color: var(--text-primary);">QA Report</h3>
+        {% if report %}
+        <span class="badge {% if report.overall_verdict == 'PASS' %}badge-completed{% elif report.overall_verdict == 'FAIL' %}badge-errored{% else %}badge-running{% endif %}">
+            {{ report.overall_verdict }}
+        </span>
+        {% endif %}
+    </div>
+    {% if report %}
+    <p class="text-sm mb-4" style="color: var(--text-secondary);">{{ report.executive_summary }}</p>
+    {% for section in report.sections %}
+    <div class="mb-4">
+        <h4 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">{{ section.title }}</h4>
+        <div class="text-sm" style="color: var(--text-secondary); white-space: pre-wrap;">{{ section.content }}</div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="text-sm" style="color: var(--text-secondary);">No report generated yet.</p>
+    {% endif %}
+</div>

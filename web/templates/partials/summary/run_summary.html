@@ -1,0 +1,55 @@
+<div class="space-y-4">
+    <div>
+        <h3 class="font-semibold mb-3" style="color: var(--text-primary);">Run summary</h3>
+        {% if run_id %}
+        <p class="text-xs mb-3" style="color: var(--text-secondary);">{{ run_id }}</p>
+        {% endif %}
+    </div>
+
+    <div class="space-y-2">
+        <div class="flex justify-between text-sm">
+            <span style="color: var(--text-secondary);">PHASE</span>
+            <span style="color: var(--text-primary);">{{ phase }}</span>
+        </div>
+        {% if stats %}
+        <div class="flex justify-between text-sm">
+            <span style="color: var(--text-secondary);">TESTS RUN</span>
+            <span style="color: var(--text-primary);">{{ stats.total_tests }}</span>
+        </div>
+        <div class="flex justify-between text-sm">
+            <span style="color: var(--text-secondary);">PASSED</span>
+            <span style="color: var(--accent-green);">{{ stats.passed }}</span>
+        </div>
+        <div class="flex justify-between text-sm">
+            <span style="color: var(--text-secondary);">FAILED</span>
+            <span style="color: var(--accent-red);">{{ stats.failed }}</span>
+        </div>
+        <div class="flex justify-between text-sm">
+            <span style="color: var(--text-secondary);">BLOCKED</span>
+            <span style="color: var(--accent-yellow);">{{ stats.blocked }}</span>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if agent_events %}
+    {% set max_ev = agent_events.values() | max %}
+    <div class="pt-3 border-t" style="border-color: var(--border);">
+        <h4 class="text-xs font-semibold uppercase mb-2" style="color: var(--text-secondary);">Agent participation</h4>
+        {% for agent_name, count in agent_events.items() %}
+        {% set colors = {
+            "test_architect": "#a78bfa", "unit_test_gen": "#4ade80",
+            "integration_test_gen": "#60a5fa", "e2e_gen": "#fbbf24",
+            "execution_agent": "#f97316", "reporting_agent": "#06b6d4",
+            "defect_intelligence_agent": "#f87171", "self_healing_agent": "#e879f9"
+        } %}
+        <div class="flex items-center gap-2 mb-1.5">
+            <span class="text-xs w-28 truncate" style="color: var(--text-primary);">{{ agent_name }}</span>
+            <div class="flex-1 h-1.5 rounded-full" style="background-color: var(--bg-surface-hover);">
+                <div class="h-1.5 rounded-full" style="background-color: {{ colors.get(agent_name, '#8b8fa3') }}; width: {{ (count / max_ev * 100) | int }}%;"></div>
+            </div>
+            <span class="text-xs w-4 text-right" style="color: var(--text-secondary);">{{ count }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>

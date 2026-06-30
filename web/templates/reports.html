@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Reports & Analytics — QAura{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color: var(--text-secondary);">Quality Intelligence</div>
+    <h1 class="text-2xl font-bold mb-2" style="color: var(--accent-purple);">Reports & Analytics</h1>
+    <p class="text-sm mb-8" style="color: var(--text-secondary);">Operational analytics for the autonomous testing pipeline.</p>
+
+    <!-- KPI Cards -->
+    {% include "partials/reports/kpi_cards.html" %}
+
+    <div class="grid grid-cols-2 gap-6">
+        <!-- Left column -->
+        <div>
+            {% include "partials/reports/execution_table.html" %}
+            {% include "partials/reports/report_body.html" %}
+        </div>
+
+        <!-- Right column -->
+        <div>
+            <!-- Defect Analyses -->
+            <div class="mb-6">
+                <h3 class="font-semibold mb-3" style="color: var(--text-primary);">Defect Analyses</h3>
+                {% if defect_analyses %}
+                {% for analysis in defect_analyses %}
+                {% include "partials/reports/defect_card.html" %}
+                {% endfor %}
+                {% else %}
+                <div class="card p-5">
+                    <p class="text-sm" style="color: var(--text-secondary);">No defects analyzed.</p>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Healing Actions -->
+            <div>
+                <h3 class="font-semibold mb-3" style="color: var(--text-primary);">Healing Actions</h3>
+                {% if healing_actions %}
+                {% for action in healing_actions %}
+                {% include "partials/reports/healing_entry.html" %}
+                {% endfor %}
+                {% else %}
+                <div class="card p-5">
+                    <p class="text-sm" style="color: var(--text-secondary);">No healing actions taken.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

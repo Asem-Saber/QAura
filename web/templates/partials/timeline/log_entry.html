@@ -1,0 +1,16 @@
+<div class="relative sse-new" style="padding-left: 1.5rem;">
+    <div class="timeline-dot" style="background-color: {{ agent_color }};"></div>
+    <div class="flex items-center gap-2 mb-1">
+        <span class="text-xs" style="color: var(--text-secondary);">{{ timestamp_short }}</span>
+        <span class="text-xs font-medium" style="color: {{ agent_color }};">{{ agent_display }}</span>
+        <span class="badge badge-{{ status }}">{{ status }}</span>
+    </div>
+    <p class="text-sm" style="color: var(--text-primary);">{{ message }}</p>
+    {% if pills %}
+    <div class="flex gap-2 mt-1.5">
+        {% for pill in pills %}
+        <span class="pill">{{ pill }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>

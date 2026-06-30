@@ -1,0 +1,32 @@
+<div>
+    <div class="flex items-center gap-3 mb-4">
+        <span class="text-sm font-medium" style="color: {{ agent_color }};">{{ agent_display }}</span>
+        <span class="badge badge-{{ agent_status }}">{{ agent_status }}</span>
+        <span class="text-xs" style="color: var(--text-secondary);">{{ logs | length }} events</span>
+    </div>
+
+    {% if logs %}
+    <div class="space-y-3">
+        {% for log in logs %}
+        <div class="p-3 rounded" style="background-color: var(--bg-primary); border: 1px solid var(--border);">
+            <div class="flex items-center gap-2 mb-1">
+                <span class="text-xs" style="color: var(--text-secondary);">{{ log.timestamp[11:19] if log.timestamp|length > 19 else log.timestamp }}</span>
+                {% if log.tool_calls %}
+                <span class="pill">tools: {{ log.tool_calls | length }}</span>
+                {% endif %}
+            </div>
+            <p class="text-sm" style="color: var(--text-primary);">{{ log.message }}</p>
+            {% if log.tool_calls %}
+            <div class="mt-2 space-y-1">
+                {% for tc in log.tool_calls %}
+                <div class="text-xs font-mono px-2 py-1 rounded" style="background-color: var(--bg-surface-hover); color: var(--accent-cyan);">{{ tc.name }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-sm" style="color: var(--text-secondary);">No activity recorded for this agent yet.</p>
+    {% endif %}
+</div>

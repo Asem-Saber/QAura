@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Pipeline Dashboard — QAura{% endblock %}
+
+{% block content %}
+<div class="p-8">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color: var(--text-secondary);">
+                {% if run_id %}LIVE &middot; PIPELINE {{ run_id }}{% else %}Operations{% endif %}
+            </div>
+            <h1 class="text-2xl font-bold" style="color: var(--accent-purple);">Pipeline Dashboard</h1>
+            <p class="text-sm mt-1" style="color: var(--text-secondary);">Live pipeline execution — streamed from the orchestrator.</p>
+        </div>
+        <div id="phase-badge">
+            {% if run_id %}
+            <div class="flex items-center gap-2 px-4 py-2 rounded-lg" style="background-color: var(--bg-surface); border: 1px solid var(--border);">
+                <span class="badge badge-running">running</span>
+                <span class="text-sm font-medium">Initializing</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="flex gap-6">
+        <!-- Timeline column -->
+        <div class="flex-1">
+            <div id="timeline" class="timeline space-y-6">
+                {% if not run_id %}
+                <p class="text-sm" style="color: var(--text-secondary);">No active run. Click <strong>+ New Run</strong> to start.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Run summary sidebar -->
+        <div class="w-80 flex-shrink-0">
+            <div id="run-summary" class="card p-5">
+                {% if run_id %}
+                {% include "partials/summary/run_summary.html" %}
+                {% else %}
+                <h3 class="font-semibold mb-3">Run summary</h3>
+                <p class="text-sm" style="color: var(--text-secondary);">Waiting for a run to start.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if run_id %}
+<!-- SSE connection — agent_log events append to timeline -->
+<div hx-ext="sse"
+     sse-connect="/sse/pipeline/{{ run_id }}"
+     sse-swap="agent_log"
+     hx-target="#timeline"
+     hx-swap="beforeend">
+
+    <!-- phase_change events swap the phase badge -->
+    <div sse-swap="phase_change"
+         hx-target="#phase-badge"
+         hx-swap="innerHTML"></div>
+
+    <!-- stats_update events swap the run summary -->
+    <div sse-swap="stats_update"
+         hx-target="#run-summary"
+         hx-swap="innerHTML"></div>
+
+    <!-- plan_ready events append approval card to timeline -->
+    <div sse-swap="plan_ready"
+         hx-target="#timeline"
+         hx-swap="beforeend"></div>
+
+    <!-- run_complete event -->
+    <div sse-swap="run_complete"
+         hx-target="#phase-badge"
+         hx-swap="innerHTML"></div>
+</div>
+{% endif %}
+{% endblock %}

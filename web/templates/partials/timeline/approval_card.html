@@ -1,0 +1,77 @@
+<div id="approval-card" class="relative sse-new card p-4" style="padding-left: 1.5rem; border-color: var(--accent-purple);">
+    <div class="timeline-dot" style="background-color: var(--accent-purple);"></div>
+    <div class="flex items-center gap-2 mb-2">
+        <span class="badge badge-running">awaiting approval</span>
+        <span class="text-sm font-medium" style="color: var(--text-primary);">Test plan ready for review</span>
+    </div>
+    {% if plan %}
+    <p class="text-sm mb-2" style="color: var(--text-secondary);">{{ plan.project_summary }}</p>
+    {% if plan.components %}
+    <div class="overflow-x-auto mb-3">
+        <table class="w-full text-xs">
+            <thead>
+                <tr style="color: var(--text-secondary);">
+                    <th class="text-left py-1 pr-3">Component</th>
+                    <th class="text-left py-1 pr-3">File</th>
+                    <th class="text-left py-1 pr-3">Type</th>
+                    <th class="text-left py-1">Risk</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for comp in plan.components %}
+                <tr style="color: var(--text-primary); border-top: 1px solid var(--border);">
+                    <td class="py-1 pr-3">{{ comp.name }}</td>
+                    <td class="py-1 pr-3 font-mono" style="color: var(--text-secondary);">{{ comp.file_path }}</td>
+                    <td class="py-1 pr-3">{{ comp.component_type }}</td>
+                    <td class="py-1">
+                        {% set risk_color = {"high": "var(--accent-red)", "medium": "var(--accent-yellow)", "low": "var(--accent-green)"} %}
+                        <span style="color: {{ risk_color.get(comp.risk_level | lower, 'var(--text-secondary)') }};">{{ comp.risk_level }}</span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    <div class="flex gap-2 mb-3">
+        <span class="pill">{{ plan.components | length }} components</span>
+        <span class="pill">{{ plan.unit_scope | length }} unit</span>
+        <span class="pill">{{ plan.integration_scope | length }} integration</span>
+        <span class="pill">{{ plan.e2e_scope | length }} e2e</span>
+    </div>
+    {% if plan.risk_areas %}
+    <div class="flex gap-2 mb-3">
+        {% for risk in plan.risk_areas %}
+        <span class="pill">{{ risk }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+    <div class="mb-3">
+        <textarea name="feedback"
+                  placeholder="Optional feedback (required for rejection)..."
+                  rows="2"
+                  class="w-full p-2 rounded text-xs"
+                  style="background-color: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;"></textarea>
+    </div>
+    <div class="flex gap-2">
+        <button hx-post="/runs/{{ run_id }}/approve"
+                hx-vals='{"approved": "true"}'
+                hx-include="[name='feedback']"
+                hx-target="#approval-card"
+                hx-swap="outerHTML"
+                class="py-1.5 px-3 rounded-lg text-xs font-medium transition-colors"
+                style="background-color: var(--accent-green); color: white;">
+            Approve
+        </button>
+        <button hx-post="/runs/{{ run_id }}/approve"
+                hx-vals='{"approved": "false"}'
+                hx-include="[name='feedback']"
+                hx-target="#approval-card"
+                hx-swap="outerHTML"
+                class="py-1.5 px-3 rounded-lg text-xs font-medium transition-colors"
+                style="background-color: var(--accent-red); color: white;">
+            Reject
+        </button>
+    </div>
+</div>

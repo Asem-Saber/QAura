@@ -1,0 +1,12 @@
+<div class="card p-4 mb-3" style="border-left: 3px solid {% if analysis.resolution_action == 'ESCALATE_HUMAN' %}var(--accent-red){% elif analysis.resolution_action in ['SELF_HEAL_LOCATOR', 'SELF_HEAL_LOGIC'] %}var(--accent-yellow){% else %}var(--accent-blue){% endif %};">
+    <div class="flex items-center gap-2 mb-2">
+        <span class="text-sm font-mono font-bold" style="color: var(--text-primary);">{{ analysis.anomaly_id }}</span>
+        <span class="pill" style="{% if analysis.resolution_action == 'ESCALATE_HUMAN' %}color: var(--accent-red); border-color: var(--accent-red);{% elif analysis.resolution_action in ['SELF_HEAL_LOCATOR', 'SELF_HEAL_LOGIC'] %}color: var(--accent-yellow); border-color: var(--accent-yellow);{% else %}color: var(--accent-blue); border-color: var(--accent-blue);{% endif %}">
+            {{ analysis.resolution_action }}
+        </span>
+    </div>
+    <p class="text-sm mb-2" style="color: var(--text-primary);">{{ analysis.confirmed_root_cause }}</p>
+    <div class="text-xs" style="color: var(--text-secondary);">
+        <strong>Recommended fix:</strong> {{ analysis.recommended_fix }}
+    </div>
+</div>
