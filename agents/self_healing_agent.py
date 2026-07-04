@@ -104,6 +104,8 @@ llm = ChatOpenAI(
     api_key=API_KEY,
     model=API_MODEL,
     temperature=0.1,
+    timeout=180,
+    max_retries=2,
 )
 
 
@@ -121,7 +123,7 @@ def _build_agent_subgraph(all_tools):
 
     builder = StateGraph(AgentState)
     builder.add_node("agent", call_model)
-    builder.add_node("tools", ToolNode(all_tools))
+    builder.add_node("tools", ToolNode(all_tools, handle_tool_errors=True))
     builder.add_edge(START, "agent")
     builder.add_conditional_edges("agent", tools_condition)
     builder.add_edge("tools", "agent")

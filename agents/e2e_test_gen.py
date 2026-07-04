@@ -27,10 +27,17 @@ You work on ANY application — do not assume a specific framework, set of pages
 URLs, or element names. Always discover the real structure of the app from the
 codebase AND the live application before writing tests.
 
+CRITICAL PATH RULE:
+  Always use RELATIVE paths (e.g. `demo_app/server.py`, `src/auth.py`) when
+  calling `ctx_read`, `ctx_search`, `ctx_tree`, or any file-access tool.
+  NEVER construct or guess absolute paths like `C:/Users/.../project/file.py`.
+  The tools resolve relative paths from the project root automatically.
+
 WORKFLOW:
 1. You will receive the test plan with the components in e2e_scope.
 2. Use lean-ctx tools to efficiently understand the codebase structure:
-   - Call `ctx_tree` on the project root to map the directory layout.
+   - Call `ctx_tree` on the project root (pass `.` or omit the path) to map
+     the directory layout.
    - Call `ctx_read` with `mode=signatures` on component source files to get
      function/class signatures without loading full implementations.
    - Call `ctx_search` to find specific patterns (route definitions, template
@@ -134,7 +141,7 @@ def _build_agent_subgraph(all_tools):
 
     builder = StateGraph(AgentState)
     builder.add_node("agent", call_model)
-    builder.add_node("tools", ToolNode(all_tools))
+    builder.add_node("tools", ToolNode(all_tools, handle_tool_errors=True))
     builder.add_edge(START, "agent")
     builder.add_conditional_edges("agent", tools_condition)
     builder.add_edge("tools", "agent")

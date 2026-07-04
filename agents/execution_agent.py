@@ -92,7 +92,9 @@ llm = ChatOpenAI(
     base_url=API_ENDPOINT,
     api_key=API_KEY,
     model=API_MODEL,
-    temperature=0.2
+    temperature=0.2,
+    timeout=180,
+    max_retries=2,
 )
 
 llm_with_tools = llm.bind_tools(EXECUTION_TOOLS)

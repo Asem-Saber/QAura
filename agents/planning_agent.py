@@ -24,9 +24,16 @@ SYSTEM_PROMPT = """You are the QAura Test Architect.
 Your job is to read the project requirements and produce a structured test plan that
 downstream generators (Unit, Integration, E2E) will consume.
 
+CRITICAL PATH RULE:
+  Always use RELATIVE paths (e.g. `demo_app/server.py`, `src/auth.py`) when
+  calling `ctx_read`, `ctx_search`, `ctx_tree`, or any file-access tool.
+  NEVER construct or guess absolute paths like `C:/Users/.../project/file.py`.
+  The tools resolve relative paths from the project root automatically.
+  Component file_path values in the test plan MUST also be relative paths.
+
 WORKFLOW:
 1. Call `read_requirements_file` with the path provided by the user. Do NOT skip this step.
-2. Call `ctx_tree` on the project root to discover the real directory layout and
+2. Call `ctx_tree` on the project root (pass `.` or omit the path) to discover the real directory layout and
    source files. Cross-reference this with the requirements document's
    'Source Files Under Test' section. If the requirements list a file path that
    does not exist on disk, or if source files exist that are not mentioned,
@@ -72,7 +79,9 @@ llm = ChatOpenAI(
     base_url=API_ENDPOINT,
     api_key=API_KEY,
     model=API_MODEL,
-    temperature=0
+    temperature=0,
+    timeout=180,
+    max_retries=2,
 )
 
 parser = PydanticOutputParser(pydantic_object=TestPlan)
@@ -92,7 +101,7 @@ def _build_agent_subgraph(all_tools):
 
     builder = StateGraph(AgentState)
     builder.add_node("agent", call_model)
-    builder.add_node("tools", ToolNode(all_tools))
+    builder.add_node("tools", ToolNode(all_tools, handle_tool_errors=True))
     builder.add_edge(START, "agent")
     builder.add_conditional_edges("agent", tools_condition)
     builder.add_edge("tools", "agent")

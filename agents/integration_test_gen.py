@@ -29,13 +29,20 @@ You work on ANY application — do not assume a specific web framework, database
 or module layout. Always discover the real structure from the codebase before
 writing tests.
 
+CRITICAL PATH RULE:
+  Always use RELATIVE paths (e.g. `demo_app/server.py`, `src/auth.py`) when
+  calling `ctx_read`, `ctx_search`, `ctx_tree`, or any file-access tool.
+  NEVER construct or guess absolute paths like `C:/Users/.../project/file.py`.
+  The tools resolve relative paths from the project root automatically.
+
 MANDATORY WORKFLOW — you MUST follow these steps IN ORDER for EACH component.
 Skipping any step is a failure. Do NOT return your final answer until every
 component has been through ALL steps.
 
 STEP 1 — UNDERSTAND PROJECT STRUCTURE
-  Call `ctx_tree` on the project root to get a high-level view of the directory
-  layout. Identify the web framework, database layer, and module boundaries.
+  Call `ctx_tree` on the project root (pass `.` or omit the path) to get a
+  high-level view of the directory layout. Identify the web framework, database
+  layer, and module boundaries.
 
 STEP 2 — DISCOVER THE TECH STACK
   For each component, use these tools in order of preference:
@@ -142,7 +149,9 @@ llm = ChatOpenAI(
     base_url=API_ENDPOINT,
     api_key=API_KEY,
     model=API_MODEL,
-    temperature=0.2
+    temperature=0.2,
+    timeout=180,
+    max_retries=2,
 )
 
 parser = PydanticOutputParser(pydantic_object=IntegrationTestOutput)
@@ -162,7 +171,7 @@ def _build_agent_subgraph(all_tools):
 
     builder = StateGraph(AgentState)
     builder.add_node("agent", call_model)
-    builder.add_node("tools", ToolNode(all_tools))
+    builder.add_node("tools", ToolNode(all_tools, handle_tool_errors=True))
     builder.add_edge(START, "agent")
     builder.add_conditional_edges("agent", tools_condition)
     builder.add_edge("tools", "agent")
