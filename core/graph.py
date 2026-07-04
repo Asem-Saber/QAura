@@ -28,7 +28,7 @@ from core.state import QAuraState
 from agents.planning_agent import test_architect_node, hitl_approval_node
 from agents.unit_test_gen import unit_test_gen_node
 from agents.integration_test_gen import integration_gen_node
-# from agents.e2e_test_gen import e2e_gen_node  # E2E disabled for now
+from agents.e2e_test_gen import e2e_gen_node
 from agents.execution_agent import execution_agent_node
 from agents.reporting_agent import reporting_agent_node
 from agents.defect_intelligence_agent import defect_intelligence_agent_node
@@ -54,8 +54,7 @@ _set_kg_ref(_kg)
 
 def _route_after_approval(state: QAuraState) -> str | list[str]:
     if state.get("plan_approved", False):
-        # return ["unit_test_gen", "integration_gen", "e2e_gen"]  # E2E disabled for now
-        return ["unit_test_gen", "integration_gen"]
+        return ["unit_test_gen", "integration_gen", "e2e_gen"]
     return "test_architect"
 
 
@@ -109,13 +108,13 @@ async def _integration_gen_with_kg(state: QAuraState, config: RunnableConfig | N
     return result
 
 
-# async def _e2e_gen_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
-#     result = await e2e_gen_node(state, config)
-#     tests = result.get("e2e_tests", [])
-#     if tests:
-#         graph_builder.build_from_generated_tests(_kg, tests, "e2e")
-#         _kg.save(KG_PATH)
-#     return result
+async def _e2e_gen_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
+    result = await e2e_gen_node(state, config)
+    tests = result.get("e2e_tests", [])
+    if tests:
+        graph_builder.build_from_generated_tests(_kg, tests, "e2e")
+        _kg.save(KG_PATH)
+    return result
 
 
 async def _execution_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
@@ -144,7 +143,7 @@ def build_graph() -> StateGraph:
     builder.add_node("human_approval", hitl_approval_node)
     builder.add_node("unit_test_gen", _unit_test_gen_with_kg)
     builder.add_node("integration_gen", _integration_gen_with_kg)
-    # builder.add_node("e2e_gen", _e2e_gen_with_kg)  # E2E disabled for now
+    builder.add_node("e2e_gen", _e2e_gen_with_kg)
     builder.add_node("execution_agent", _execution_with_kg)
     builder.add_node("reporting_agent", reporting_agent_node)
     builder.add_node("defect_intelligence_agent", defect_intelligence_agent_node)
@@ -156,15 +155,14 @@ def build_graph() -> StateGraph:
     builder.add_conditional_edges(
         "human_approval",
         _route_after_approval,
-        # ["unit_test_gen", "integration_gen", "e2e_gen", "test_architect"],  # E2E disabled for now
-        ["unit_test_gen", "integration_gen", "test_architect"],
+        ["unit_test_gen", "integration_gen", "e2e_gen", "test_architect"],
     )
 
     # --- Edges: Phase 2 (Generation) → Phase 3 (Execution) ---
     # All three generators run in parallel, then fan-in to execution
     builder.add_edge("unit_test_gen", "execution_agent")
     builder.add_edge("integration_gen", "execution_agent")
-    # builder.add_edge("e2e_gen", "execution_agent")  # E2E disabled for now
+    builder.add_edge("e2e_gen", "execution_agent")
 
     # --- Edges: Phase 4 (Reporting → Defect Analysis) ---
     builder.add_edge("execution_agent", "reporting_agent")
