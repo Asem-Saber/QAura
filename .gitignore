@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+.playwright-mcp/
+memory_db/
+err.tmp
+codebase_db/
+demo_app/
+demo_app2/
+docs/
+reports/
+tests/
