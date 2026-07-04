@@ -1,4 +1,8 @@
+import asyncio
 import json
+import logging
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -9,9 +13,27 @@ from sse_starlette.sse import EventSourceResponse
 
 from web.pipeline import pipeline_manager
 
+_logger = logging.getLogger("uvicorn.error")
+
 WEB_DIR = Path(__file__).resolve().parent
 
-app = FastAPI(title="QAura Dashboard")
+
+def _windows_exception_handler(loop, context):
+    exc = context.get("exception")
+    if isinstance(exc, OSError) and getattr(exc, "winerror", None) == 87:
+        _logger.debug("Suppressed ProactorEventLoop WinError 87")
+        return
+    loop.default_exception_handler(context)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    if sys.platform == "win32":
+        asyncio.get_running_loop().set_exception_handler(_windows_exception_handler)
+    yield
+
+
+app = FastAPI(title="QAura Dashboard", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=WEB_DIR / "templates")
