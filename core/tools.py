@@ -120,7 +120,13 @@ def check_test_structure(code: str) -> str:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
             test_functions.append(node.name)
             has_assert = any(
-                isinstance(child, ast.Assert) or isinstance(child, ast.With)
+                isinstance(child, ast.Assert)
+                or (isinstance(child, ast.With) and any(
+                    isinstance(item.context_expr, ast.Call)
+                    and isinstance(item.context_expr.func, ast.Attribute)
+                    and item.context_expr.func.attr == "raises"
+                    for item in (child.items if hasattr(child, 'items') else [])
+                ))
                 or (isinstance(child, ast.Expr) and isinstance(child.value, ast.Call)
                     and isinstance(child.value.func, ast.Attribute)
                     and child.value.func.attr.startswith("assert"))
