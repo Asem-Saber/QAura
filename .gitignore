@@ -1,10 +1,13 @@
 .env
 __pycache__/
 *.pyc
+*.db
+*.sqlite3
 .playwright-mcp/
 memory_db/
 err.tmp
 codebase_db/
+knowledge_graph/defect_graph.json
 demo_app/
 demo_app2/
 docs/
