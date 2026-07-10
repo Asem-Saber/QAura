@@ -12,6 +12,8 @@ import os
 import sys
 import json
 import asyncio
+import logging
+import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -40,12 +42,15 @@ from knowledge_graph.graph_query import set_graph as _set_kg_ref
 load_dotenv()
 
 MAX_HEALING_ITERATIONS = 3
+MAX_PLAN_REVISIONS = 3
 
 KG_PATH = ROOT / "knowledge_graph" / "defect_graph.json"
 
 _kg = DefectKnowledgeGraph()
 _kg.load(KG_PATH)
 _set_kg_ref(_kg)
+_kg_lock = threading.Lock()
+_logger = logging.getLogger("qaura.graph")
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +59,8 @@ _set_kg_ref(_kg)
 
 def _route_after_approval(state: QAuraState) -> str | list[str]:
     if state.get("plan_approved", False):
+        return ["unit_test_gen", "integration_gen", "e2e_gen"]
+    if state.get("plan_revision_count", 0) >= MAX_PLAN_REVISIONS:
         return ["unit_test_gen", "integration_gen", "e2e_gen"]
     return "test_architect"
 
@@ -80,13 +87,14 @@ async def _test_architect_with_kg(state: QAuraState, config: RunnableConfig | No
     result = await test_architect_node(state, config)
     plan = result.get("test_plan") or state.get("test_plan")
     if plan:
-        graph_builder.build_from_test_plan(_kg, plan)
-        req_path = state.get("requirements_path", "")
-        project_root = Path(req_path).parent if req_path else ROOT
-        if project_root == ROOT:
-            project_root = ROOT / "demo_app"
-        graph_builder.build_dependencies(_kg, project_root.parent if (project_root / "__init__.py").exists() else project_root)
-        _kg.save(KG_PATH)
+        with _kg_lock:
+            graph_builder.build_from_test_plan(_kg, plan)
+            req_path = state.get("requirements_path", "")
+            project_root = Path(req_path).parent if req_path else ROOT
+            if project_root == ROOT:
+                project_root = ROOT / "demo_app"
+            graph_builder.build_dependencies(_kg, project_root.parent if (project_root / "__init__.py").exists() else project_root)
+            _kg.save(KG_PATH)
     return result
 
 
@@ -94,8 +102,9 @@ async def _unit_test_gen_with_kg(state: QAuraState, config: RunnableConfig | Non
     result = await unit_test_gen_node(state, config)
     tests = result.get("unit_tests", [])
     if tests:
-        graph_builder.build_from_generated_tests(_kg, tests, "unit")
-        _kg.save(KG_PATH)
+        with _kg_lock:
+            graph_builder.build_from_generated_tests(_kg, tests, "unit")
+            _kg.save(KG_PATH)
     return result
 
 
@@ -103,8 +112,9 @@ async def _integration_gen_with_kg(state: QAuraState, config: RunnableConfig | N
     result = await integration_gen_node(state, config)
     tests = result.get("integration_tests", [])
     if tests:
-        graph_builder.build_from_generated_tests(_kg, tests, "integration")
-        _kg.save(KG_PATH)
+        with _kg_lock:
+            graph_builder.build_from_generated_tests(_kg, tests, "integration")
+            _kg.save(KG_PATH)
     return result
 
 
@@ -112,17 +122,19 @@ async def _e2e_gen_with_kg(state: QAuraState, config: RunnableConfig | None = No
     result = await e2e_gen_node(state, config)
     tests = result.get("e2e_tests", [])
     if tests:
-        graph_builder.build_from_generated_tests(_kg, tests, "e2e")
-        _kg.save(KG_PATH)
+        with _kg_lock:
+            graph_builder.build_from_generated_tests(_kg, tests, "e2e")
+            _kg.save(KG_PATH)
     return result
 
 
 async def _execution_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
-    result = execution_agent_node(state, config)
+    result = await execution_agent_node(state, config)
     anomalies = result.get("anomaly_reports", [])
     if anomalies:
-        graph_builder.build_from_anomalies(_kg, anomalies)
-        _kg.save(KG_PATH)
+        with _kg_lock:
+            graph_builder.build_from_anomalies(_kg, anomalies)
+            _kg.save(KG_PATH)
     return result
 
 
@@ -130,8 +142,9 @@ async def _self_healing_with_kg(state: QAuraState, config: RunnableConfig | None
     result = await self_healing_agent_node(state, config)
     actions = result.get("healing_actions", [])
     if actions:
-        graph_builder.build_from_healing(_kg, actions)
-        _kg.save(KG_PATH)
+        with _kg_lock:
+            graph_builder.build_from_healing(_kg, actions)
+            _kg.save(KG_PATH)
     return result
 
 
@@ -224,6 +237,7 @@ def get_initial_state(requirements_path: str | None = None) -> dict:
         "healing_actions": [],
         "loop_decision": "",
         "healing_iterations": 0,
+        "plan_revision_count": 0,
     }
 
 
@@ -239,7 +253,7 @@ async def run_pipeline_phase1(
     config = {"configurable": {"thread_id": thread_id}}
     initial_state = get_initial_state(requirements_path)
 
-    print("\n--- Starting Phase 1 ---")
+    _logger.info("Starting Phase 1")
     async for event in graph.astream(
         initial_state, config=config, stream_mode="updates", subgraphs=True,
     ):
@@ -255,7 +269,7 @@ async def run_pipeline_phase2(
     feedback: str = "",
 ):
     """Resume after HITL with approval decision. Returns the final StateSnapshot."""
-    print("\n--- Resuming Graph ---")
+    _logger.info("Resuming Graph")
     async for event in graph.astream(
         Command(resume={"approved": approved, "feedback": feedback}),
         config=config,
@@ -283,56 +297,48 @@ def _log_stream_event(event):
                     last_msg = messages[-1]
                     if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
                         tools = [tc["name"] for tc in last_msg.tool_calls]
-                        print(f"    [{subgraph_name}] Agent calling tools: {tools}")
+                        _logger.info("[%s] Agent calling tools: %s", subgraph_name, tools)
                     else:
-                        print(f"    [{subgraph_name}] Agent provided a response.")
+                        _logger.info("[%s] Agent provided a response.", subgraph_name)
             elif node_name == "tools":
-                print(f"    [{subgraph_name}] Tool execution finished.")
+                _logger.debug("[%s] Tool execution finished.", subgraph_name)
     else:
         for node_name in update.keys():
             if node_name != "__metadata__":
-                print(f"\n[Main Graph] Finished node: {node_name}")
+                _logger.info("[Main Graph] Finished node: %s", node_name)
 
 
 def _print_final_results(state: dict):
     if state.get("test_plan"):
-        print("\n--- Writing Test Plan to File ---")
+        _logger.info("Writing Test Plan to File")
         with open(ROOT / "test_plan.json", "w") as f:
             json.dump(state["test_plan"].model_dump(), f, indent=2)
 
     if state.get("execution_summary"):
-        print("\n--- Execution Summary ---")
-        print(state["execution_summary"])
+        _logger.info("Execution Summary: %s", state["execution_summary"])
 
     if state.get("qa_report"):
         report = state["qa_report"]
-        print("\n--- QA Report ---")
-        print(f"  Verdict : {report.overall_verdict}")
-        print(f"  Summary : {report.executive_summary}")
-        print(f"  Saved to: {state.get('report_path')}")
+        _logger.info("QA Report — Verdict: %s | Summary: %s | Saved to: %s",
+                      report.overall_verdict, report.executive_summary, state.get("report_path"))
 
     if state.get("defect_analyses"):
-        print("\n--- Defect Analyses ---")
         for analysis in state["defect_analyses"]:
-            print(
-                f"  [{analysis.anomaly_id}] {analysis.resolution_action}: "
-                f"{analysis.confirmed_root_cause}"
-            )
+            _logger.info("[%s] %s: %s", analysis.anomaly_id,
+                         analysis.resolution_action, analysis.confirmed_root_cause)
 
     if state.get("healing_actions"):
-        print("\n--- Self-Healing Actions ---")
         for action in state["healing_actions"]:
             status = "OK" if action.success else "FAILED"
-            print(
-                f"  [{action.anomaly_id}] {action.action_type} ({status}): "
-                f"{action.explanation}"
-            )
-        print(f"  Loop decision: {state.get('loop_decision')}")
-        print(f"  Healing iterations: {state.get('healing_iterations')}")
+            _logger.info("[%s] %s (%s): %s", action.anomaly_id,
+                         action.action_type, status, action.explanation)
+        _logger.info("Loop decision: %s | Healing iterations: %s",
+                      state.get("loop_decision"), state.get("healing_iterations"))
 
 
 async def main():
-    print("Starting QAura Graph...")
+    logging.basicConfig(level=logging.INFO, format="%(name)s | %(levelname)s | %(message)s")
+    _logger.info("Starting QAura Graph...")
     config, _ = await run_pipeline_phase1()
 
     while True:
@@ -340,8 +346,7 @@ async def main():
         if not snapshot.next:
             break
 
-        print("\n--- Graph Paused ---")
-        print("Waiting for human input...")
+        _logger.info("Graph Paused — Waiting for human input...")
 
         approved = input("Approve the test plan? (y/n): ").lower() == "y"
         feedback = ""
@@ -351,8 +356,7 @@ async def main():
         await run_pipeline_phase2(config, approved, feedback)
 
     final_state = graph.get_state(config).values
-    print("\n--- Final Output ---")
-    print(f"Plan Approved: {final_state.get('plan_approved')}")
+    _logger.info("Final Output — Plan Approved: %s", final_state.get("plan_approved"))
     _print_final_results(final_state)
 
 
