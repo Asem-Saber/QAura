@@ -308,7 +308,13 @@ async def run_state(run_id: str):
 
     serialized = {}
     for key, value in state.items():
-        if hasattr(value, "model_dump"):
+        if key == "messages":
+            serialized[key] = [
+                {"type": type(m).__name__, "content": getattr(m, "content", str(m))}
+                if hasattr(m, "content") else str(m)
+                for m in value
+            ]
+        elif hasattr(value, "model_dump"):
             serialized[key] = value.model_dump()
         elif isinstance(value, list) and value and hasattr(value[0], "model_dump"):
             serialized[key] = [item.model_dump() for item in value]
