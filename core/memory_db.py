@@ -57,31 +57,35 @@ def log_execution(
     classification: str = "",
 ) -> None:
     conn = _get_connection()
-    conn.execute(
-        """INSERT INTO test_executions
-           (test_id, run_id, status, duration_ms, stack_trace, classification, timestamp)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (
-            test_id,
-            run_id,
-            status,
-            duration_ms,
-            stack_trace,
-            classification,
-            datetime.now(timezone.utc).isoformat(),
-        ),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            """INSERT INTO test_executions
+               (test_id, run_id, status, duration_ms, stack_trace, classification, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                test_id,
+                run_id,
+                status,
+                duration_ms,
+                stack_trace,
+                classification,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def query_test_history(test_id: str) -> dict:
     conn = _get_connection()
-    rows = conn.execute(
-        "SELECT status, duration_ms, timestamp FROM test_executions WHERE test_id = ? ORDER BY timestamp DESC",
-        (test_id,),
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT status, duration_ms, timestamp FROM test_executions WHERE test_id = ? ORDER BY timestamp DESC",
+            (test_id,),
+        ).fetchall()
+    finally:
+        conn.close()
 
     if not rows:
         return {"test_id": test_id, "total_runs": 0, "flakiness_rate": 0.0, "history": []}
@@ -118,23 +122,25 @@ def log_healing_action(
     success: bool = True,
 ) -> None:
     conn = _get_connection()
-    conn.execute(
-        """INSERT INTO healing_actions
-           (anomaly_id, action_type, target_file, original_code, patched_code, explanation, success, timestamp)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            anomaly_id,
-            action_type,
-            target_file,
-            original_code,
-            patched_code,
-            explanation,
-            1 if success else 0,
-            datetime.now(timezone.utc).isoformat(),
-        ),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            """INSERT INTO healing_actions
+               (anomaly_id, action_type, target_file, original_code, patched_code, explanation, success, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                anomaly_id,
+                action_type,
+                target_file,
+                original_code,
+                patched_code,
+                explanation,
+                1 if success else 0,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # Auto-initialize tables on import
