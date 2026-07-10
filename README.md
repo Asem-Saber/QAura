@@ -200,7 +200,7 @@ Interactive mode with terminal-based HITL approval.
 | Context Compression | [lean-ctx](https://leanctx.com) MCP server (AST-aware, 18 languages) |
 | Test Framework | [pytest](https://pytest.org) + [pytest-playwright](https://github.com/microsoft/playwright-pytest) |
 | Web Dashboard | [FastAPI](https://fastapi.tiangolo.com) + [HTMX](https://htmx.org) + SSE + [Tailwind CSS](https://tailwindcss.com) |
-| Database | SQLite (long-term memory + demo app) |
+| Database | SQLite (long-term memory) |
 
 ## Future Work
 
