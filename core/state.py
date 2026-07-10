@@ -158,17 +158,18 @@ class QAuraState(TypedDict):
     test_plan: TestPlan | None
     plan_approved: bool
     messages: Annotated[list, operator.add]
-    unit_tests: List[GeneratedTest]
-    integration_tests: List[GeneratedTest]
-    e2e_tests: List[GeneratedTest]
+    unit_tests: Annotated[List[GeneratedTest], operator.add]
+    integration_tests: Annotated[List[GeneratedTest], operator.add]
+    e2e_tests: Annotated[List[GeneratedTest], operator.add]
     environment_status: dict
     execution_summary: ExecutionResultsSummary | None
     coverage_assessment: CoverageConfidenceAssessment | None
-    anomaly_reports: List[StructuredAnomalyReport]
-    execution_memory: List[ExecutionMemoryUpdate]
+    anomaly_reports: Annotated[List[StructuredAnomalyReport], operator.add]
+    execution_memory: Annotated[List[ExecutionMemoryUpdate], operator.add]
     qa_report: QAReport | None
     report_path: str
-    defect_analyses: List[DefectAnalysis]
-    healing_actions: List[HealingAction]
+    defect_analyses: Annotated[List[DefectAnalysis], operator.add]
+    healing_actions: Annotated[List[HealingAction], operator.add]
     loop_decision: str
     healing_iterations: int
+    plan_revision_count: int
