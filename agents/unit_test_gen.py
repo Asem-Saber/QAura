@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from core.state import QAuraState, UnitTestOutput
 from core.tools import UNIT_TOOLS
@@ -149,7 +150,8 @@ def _build_agent_subgraph(all_tools):
 
 async def unit_test_gen_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — generates unit tests for components in unit_scope."""
-    print("--- Running Unit Test Generator ---")
+    logger = logging.getLogger("qaura.unit_gen")
+    logger.info("Running Unit Test Generator")
     test_plan = state.get("test_plan")
     if not test_plan:
         return {"messages": ["No test plan found."]}
@@ -173,21 +175,21 @@ async def unit_test_gen_node(state: QAuraState, config: RunnableConfig | None = 
         risk_areas=test_plan.risk_areas,
     )
 
-    client = MultiServerMCPClient(get_mcp_config(leanctx=True))
-    leanctx_tools = await client.get_tools()
-    all_tools = UNIT_TOOLS + leanctx_tools
-    agent_subgraph = _build_agent_subgraph(all_tools)
+    async with MultiServerMCPClient(get_mcp_config(leanctx=True)) as client:
+        leanctx_tools = await client.get_tools()
+        all_tools = UNIT_TOOLS + leanctx_tools
+        agent_subgraph = _build_agent_subgraph(all_tools)
 
-    agent_result = await agent_subgraph.ainvoke(
-        {"messages": [("system", system_msg), ("user", human_msg)]},
-        config={"callbacks": callbacks},
-    )
+        agent_result = await agent_subgraph.ainvoke(
+            {"messages": [("system", system_msg), ("user", human_msg)]},
+            config={"callbacks": callbacks, "recursion_limit": 60},
+        )
 
     try:
         output = robust_parse(agent_result["messages"][-1].content, UnitTestOutput, llm)
         tests = output.tests
     except Exception as e:
-        print(f"Error parsing output: {e}")
+        logger.error("Error parsing output: %s", e)
         tests = []
 
     return {

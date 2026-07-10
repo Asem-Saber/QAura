@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from core.state import QAuraState, SelfHealingOutput
 from core.tools import SELF_HEALING_TOOLS
@@ -132,7 +133,8 @@ def _build_agent_subgraph(all_tools):
 
 async def self_healing_agent_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — applies corrective patches based on defect analyses."""
-    print("--- Running Self-Healing Agent ---")
+    logger = logging.getLogger("qaura.self_healing")
+    logger.info("Running Self-Healing Agent")
 
     defect_analyses = state.get("defect_analyses", [])
     iteration = state.get("healing_iterations", 0) + 1
@@ -180,15 +182,15 @@ async def self_healing_agent_node(state: QAuraState, config: RunnableConfig | No
         risk_areas=", ".join(test_plan.risk_areas) if test_plan else "N/A",
     )
 
-    client = MultiServerMCPClient(get_mcp_config(playwright=True, leanctx=True))
-    mcp_tools = await client.get_tools()
-    all_tools = SELF_HEALING_TOOLS + mcp_tools
-    agent_subgraph = _build_agent_subgraph(all_tools)
+    async with MultiServerMCPClient(get_mcp_config(playwright=True, leanctx=True)) as client:
+        mcp_tools = await client.get_tools()
+        all_tools = SELF_HEALING_TOOLS + mcp_tools
+        agent_subgraph = _build_agent_subgraph(all_tools)
 
-    agent_result = await agent_subgraph.ainvoke(
-        {"messages": [("system", system_msg), ("user", human_msg)]},
-        config={"callbacks": callbacks, "recursion_limit": 80},
-    )
+        agent_result = await agent_subgraph.ainvoke(
+            {"messages": [("system", system_msg), ("user", human_msg)]},
+            config={"callbacks": callbacks, "recursion_limit": 80},
+        )
 
     try:
         output = robust_parse(agent_result["messages"][-1].content, SelfHealingOutput, llm)
@@ -203,8 +205,8 @@ async def self_healing_agent_node(state: QAuraState, config: RunnableConfig | No
             ],
         }
     except Exception as e:
-        print(f"Error parsing Self-Healing output: {e}")
-        print("Raw output:", agent_result["messages"][-1].content)
+        logger.error("Error parsing Self-Healing output: %s", e)
+        logger.debug("Raw output: %s", agent_result["messages"][-1].content)
         return {
             "healing_actions": [],
             "loop_decision": "ESCALATE",

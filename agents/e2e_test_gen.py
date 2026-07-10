@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from core.state import QAuraState, E2ETestOutput
 from core.tools import E2E_TOOLS
@@ -150,7 +151,8 @@ def _build_agent_subgraph(all_tools):
 
 async def e2e_gen_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — generates E2E tests for e2e_scope using Playwright MCP."""
-    print("--- Running E2E Test Generator ---")
+    logger = logging.getLogger("qaura.e2e_gen")
+    logger.info("Running E2E Test Generator")
     test_plan = state.get("test_plan")
     if not test_plan:
         return {"messages": ["No test plan found."]}
@@ -174,21 +176,21 @@ async def e2e_gen_node(state: QAuraState, config: RunnableConfig | None = None) 
         risk_areas=test_plan.risk_areas,
     )
 
-    client = MultiServerMCPClient(get_mcp_config(playwright=True, leanctx=True))
-    mcp_tools = await client.get_tools()
-    all_tools = E2E_TOOLS + mcp_tools
-    agent_subgraph = _build_agent_subgraph(all_tools)
+    async with MultiServerMCPClient(get_mcp_config(playwright=True, leanctx=True)) as client:
+        mcp_tools = await client.get_tools()
+        all_tools = E2E_TOOLS + mcp_tools
+        agent_subgraph = _build_agent_subgraph(all_tools)
 
-    agent_result = await agent_subgraph.ainvoke(
-        {"messages": [("system", system_msg), ("user", human_msg)]},
-        config={"callbacks": callbacks},
-    )
+        agent_result = await agent_subgraph.ainvoke(
+            {"messages": [("system", system_msg), ("user", human_msg)]},
+            config={"callbacks": callbacks, "recursion_limit": 60},
+        )
 
     try:
         output = robust_parse(agent_result["messages"][-1].content, E2ETestOutput, llm)
         tests = output.tests
     except Exception as e:
-        print(f"Error parsing output: {e}")
+        logger.error("Error parsing output: %s", e)
         tests = []
 
     return {

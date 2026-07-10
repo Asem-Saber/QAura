@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from core.state import QAuraState, QAReport
 from core.tools import REPORTING_TOOLS
@@ -77,28 +78,30 @@ llm = ChatOpenAI(
     max_retries=2,
 )
 
-llm_with_tools = llm.bind_tools(REPORTING_TOOLS)
-
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
 
-def call_model(state: AgentState):
-    response = llm_with_tools.invoke(state["messages"])
-    return {"messages": [response]}
 
-builder = StateGraph(AgentState)
-builder.add_node("agent", call_model)
-builder.add_node("tools", ToolNode(REPORTING_TOOLS))
-builder.add_edge(START, "agent")
-builder.add_conditional_edges("agent", tools_condition)
-builder.add_edge("tools", "agent")
-agent_subgraph = builder.compile()
+def _build_agent_subgraph():
+    llm_with_tools = llm.bind_tools(REPORTING_TOOLS)
+
+    def call_model(state: AgentState):
+        response = llm_with_tools.invoke(state["messages"])
+        return {"messages": [response]}
+
+    builder = StateGraph(AgentState)
+    builder.add_node("agent", call_model)
+    builder.add_node("tools", ToolNode(REPORTING_TOOLS, handle_tool_errors=True))
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges("agent", tools_condition)
+    builder.add_edge("tools", "agent")
+    return builder.compile()
 
 
-
-def reporting_agent_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
+async def reporting_agent_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — compiles the QA report from execution results."""
-    print("--- Running Reporting Agent ---")
+    logger = logging.getLogger("qaura.reporting")
+    logger.info("Running Reporting Agent")
 
     execution_summary   = state.get("execution_summary")
     coverage_assessment = state.get("coverage_assessment")
@@ -127,9 +130,10 @@ def reporting_agent_node(state: QAuraState, config: RunnableConfig | None = None
             risk_areas= ", ".join(test_plan.risk_areas) if test_plan else "N/A",
     )
 
-    agent_result = agent_subgraph.invoke(
+    agent_subgraph = _build_agent_subgraph()
+    agent_result = await agent_subgraph.ainvoke(
         {"messages": [("system", system_msg), ("user", human_msg)]},
-        config={"callbacks": callbacks},
+        config={"callbacks": callbacks, "recursion_limit": 60},
     )
 
     try:
@@ -143,8 +147,8 @@ def reporting_agent_node(state: QAuraState, config: RunnableConfig | None = None
             ],
         }
     except Exception as e:
-        print(f"Error parsing Reporting Agent output: {e}")
-        print("Raw output:", agent_result["messages"][-1].content)
+        logger.error("Error parsing Reporting Agent output: %s", e)
+        logger.debug("Raw output: %s", agent_result["messages"][-1].content)
         return {
             "qa_report": None,
             "report_path": "",

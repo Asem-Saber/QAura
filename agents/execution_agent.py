@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from core.state import (
     QAuraState,
@@ -97,30 +98,32 @@ llm = ChatOpenAI(
     max_retries=2,
 )
 
-llm_with_tools = llm.bind_tools(EXECUTION_TOOLS)
-
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
-
-def call_model(state: AgentState):
-    response = llm_with_tools.invoke(state["messages"])
-    return {"messages": [response]}
-
-builder = StateGraph(AgentState)
-builder.add_node("agent", call_model)
-builder.add_node("tools", ToolNode(EXECUTION_TOOLS))
-builder.add_edge(START, "agent")
-builder.add_conditional_edges("agent", tools_condition)
-builder.add_edge("tools", "agent")
-agent_subgraph = builder.compile()
 
 _exec_parser = PydanticOutputParser(pydantic_object=ExecutionOutput)
 
 
+def _build_agent_subgraph():
+    llm_with_tools = llm.bind_tools(EXECUTION_TOOLS)
 
-def execution_agent_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
+    def call_model(state: AgentState):
+        response = llm_with_tools.invoke(state["messages"])
+        return {"messages": [response]}
+
+    builder = StateGraph(AgentState)
+    builder.add_node("agent", call_model)
+    builder.add_node("tools", ToolNode(EXECUTION_TOOLS, handle_tool_errors=True))
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges("agent", tools_condition)
+    builder.add_edge("tools", "agent")
+    return builder.compile()
+
+
+async def execution_agent_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — executes tests and analyzes results."""
-    print("--- Running Execution Agent ---")
+    logger = logging.getLogger("qaura.execution")
+    logger.info("Running Execution Agent")
     test_plan = state.get("test_plan")
 
     project_summary = test_plan.project_summary if test_plan else "No test plan"
@@ -143,12 +146,13 @@ def execution_agent_node(state: QAuraState, config: RunnableConfig | None = None
     callbacks = (config or {}).get("callbacks", [])
     system_msg = SYSTEM_PROMPT.format(format_instructions=_exec_parser.get_format_instructions())
     human_msg = HUMAN_PROMPT.format(
-        project_summary= project_summary,
-            risk_areas= ", ".join(risk_areas),
-            compiled_tests= compiled_tests_str,
+        project_summary=project_summary,
+        risk_areas=", ".join(risk_areas),
+        compiled_tests=compiled_tests_str,
     )
 
-    agent_result = agent_subgraph.invoke(
+    agent_subgraph = _build_agent_subgraph()
+    agent_result = await agent_subgraph.ainvoke(
         {"messages": [("system", system_msg), ("user", human_msg)]},
         config={"callbacks": callbacks, "recursion_limit": 60},
     )
@@ -184,8 +188,8 @@ def execution_agent_node(state: QAuraState, config: RunnableConfig | None = None
             ]
         }
     except Exception as e:
-        print(f"Error parsing execution output: {e}")
-        print("Raw output:", agent_result["messages"][-1].content)
+        logger.error("Error parsing execution output: %s", e)
+        logger.debug("Raw output: %s", agent_result["messages"][-1].content)
         return {
             "environment_status": {"parsed": False, "error": str(e)},
             "messages": [f"Execution Agent encountered an error during parsing: {e}"]

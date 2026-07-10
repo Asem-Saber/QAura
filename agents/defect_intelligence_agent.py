@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from core.state import QAuraState, DefectAnalysis, DefectIntelligenceOutput
 from core.tools import DEFECT_TOOLS
@@ -110,7 +111,8 @@ def _build_agent_subgraph(all_tools):
 
 async def defect_intelligence_agent_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node — root-cause analysis on every anomaly from the execution phase."""
-    print("--- Running Defect Intelligence Agent ---")
+    logger = logging.getLogger("qaura.defect_intel")
+    logger.info("Running Defect Intelligence Agent")
 
     anomaly_reports = state.get("anomaly_reports", [])
 
@@ -132,15 +134,15 @@ async def defect_intelligence_agent_node(state: QAuraState, config: RunnableConf
         risk_areas=", ".join(test_plan.risk_areas) if test_plan else "N/A",
     )
 
-    client = MultiServerMCPClient(get_mcp_config(playwright=True, leanctx=True))
-    mcp_tools = await client.get_tools()
-    all_tools = DEFECT_TOOLS + mcp_tools
-    agent_subgraph = _build_agent_subgraph(all_tools)
+    async with MultiServerMCPClient(get_mcp_config(playwright=True, leanctx=True)) as client:
+        mcp_tools = await client.get_tools()
+        all_tools = DEFECT_TOOLS + mcp_tools
+        agent_subgraph = _build_agent_subgraph(all_tools)
 
-    agent_result = await agent_subgraph.ainvoke(
-        {"messages": [("system", system_msg), ("user", human_msg)]},
-        config={"callbacks": callbacks, "recursion_limit": 60},
-    )
+        agent_result = await agent_subgraph.ainvoke(
+            {"messages": [("system", system_msg), ("user", human_msg)]},
+            config={"callbacks": callbacks, "recursion_limit": 60},
+        )
 
     try:
         output = robust_parse(agent_result["messages"][-1].content, DefectIntelligenceOutput, llm)
@@ -154,8 +156,8 @@ async def defect_intelligence_agent_node(state: QAuraState, config: RunnableConf
             ],
         }
     except Exception as e:
-        print(f"Error parsing Defect Intelligence output: {e}")
-        print("Raw output:", agent_result["messages"][-1].content)
+        logger.error("Error parsing Defect Intelligence output: %s", e)
+        logger.debug("Raw output: %s", agent_result["messages"][-1].content)
         return {
             "defect_analyses": [],
             "messages": [f"Defect Intelligence Agent encountered a parsing error: {e}"],

@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from core.tools import PLANNING_TOOLS
 from core.state import QAuraState, TestPlan
@@ -110,7 +111,8 @@ def _build_agent_subgraph(all_tools):
 
 async def test_architect_node(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     """LangGraph node for Phase 1."""
-    print("--- Running Test Architect ---")
+    logger = logging.getLogger("qaura.planning")
+    logger.info("Running Test Architect")
     callbacks = (config or {}).get("callbacks", [])
 
     system_msg = SYSTEM_PROMPT.format(format_instructions=parser.get_format_instructions())
@@ -125,15 +127,15 @@ async def test_architect_node(state: QAuraState, config: RunnableConfig | None =
     feedback_msgs = [m for m in state.get("messages", []) if isinstance(m, tuple) and m[0] == "user"]
     invoke_msgs.extend(feedback_msgs)
 
-    client = MultiServerMCPClient(get_mcp_config(leanctx=True))
-    leanctx_tools = await client.get_tools()
-    all_tools = PLANNING_TOOLS + leanctx_tools
-    agent_subgraph = _build_agent_subgraph(all_tools)
+    async with MultiServerMCPClient(get_mcp_config(leanctx=True)) as client:
+        leanctx_tools = await client.get_tools()
+        all_tools = PLANNING_TOOLS + leanctx_tools
+        agent_subgraph = _build_agent_subgraph(all_tools)
 
-    agent_result = await agent_subgraph.ainvoke(
-        {"messages": invoke_msgs},
-        config={"callbacks": callbacks},
-    )
+        agent_result = await agent_subgraph.ainvoke(
+            {"messages": invoke_msgs},
+            config={"callbacks": callbacks, "recursion_limit": 60},
+        )
 
     final_output = agent_result["messages"][-1].content
 
@@ -141,7 +143,7 @@ async def test_architect_node(state: QAuraState, config: RunnableConfig | None =
         generated_plan = robust_parse(final_output, TestPlan, llm)
         num_components = len(generated_plan.components)
     except Exception as e:
-        print(f"Error parsing JSON: {e}\nAgent Output was: {final_output[:500]}")
+        logger.error("Error parsing JSON: %s\nAgent Output was: %s", e, final_output[:500])
         generated_plan = None
         num_components = 0
 
@@ -153,7 +155,7 @@ async def test_architect_node(state: QAuraState, config: RunnableConfig | None =
 
 def hitl_approval_node(state: QAuraState) -> dict:
     """Pauses execution for human review."""
-    print("--- HITL Gate: Awaiting Approval ---")
+    logging.getLogger("qaura.planning").info("HITL Gate: Awaiting Approval")
 
     test_plan = state.get("test_plan")
     human_response = interrupt({
@@ -162,12 +164,15 @@ def hitl_approval_node(state: QAuraState) -> dict:
 
     approved = human_response.get("approved", False)
     feedback = human_response.get("feedback", "")
+    revision_count = state.get("plan_revision_count", 0)
 
     messages = [f"Human approval status: {approved}"]
     if not approved and feedback:
         messages.append(("user", f"Feedback on previous plan: {feedback}. Please revise."))
+        revision_count += 1
 
     return {
         "plan_approved": approved,
+        "plan_revision_count": revision_count,
         "messages": messages
     }
