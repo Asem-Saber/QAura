@@ -200,16 +200,7 @@ Interactive mode with terminal-based HITL approval.
 | Context Compression | [lean-ctx](https://leanctx.com) MCP server (AST-aware, 18 languages) |
 | Test Framework | [pytest](https://pytest.org) + [pytest-playwright](https://github.com/microsoft/playwright-pytest) |
 | Web Dashboard | [FastAPI](https://fastapi.tiangolo.com) + [HTMX](https://htmx.org) + SSE + [Tailwind CSS](https://tailwindcss.com) |
-| Database | SQLite (long-term memory) |
-<<<<<<< Updated upstream
-=======
-
-## Security Notes
-
-QAura executes LLM-generated test code via pytest and lets the self-healing agent patch source files — **directly on the host machine, without sandboxing**. File tools are restricted to the project root (absolute paths and `../` traversal are refused), but generated code itself is not sandboxed. Run QAura only against projects you trust, ideally in a container or VM.
-
-The dashboard has **no authentication** — anyone who can reach the port can start runs and approve plans. Keep it bound to `127.0.0.1` (the default) or put it behind a reverse proxy with auth.
->>>>>>> Stashed changes
+| Database | SQLite (long-term memory + demo app) |
 
 ## Future Work
 
