@@ -27,6 +27,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT = Path(__file__).resolve().parent.parent
 
 from core.state import QAuraState
+from core.tools import reset_tests_dir
 from agents.planning_agent import test_architect_node, hitl_approval_node
 from agents.unit_test_gen import unit_test_gen_node
 from agents.integration_test_gen import integration_gen_node
@@ -128,12 +129,19 @@ async def _e2e_gen_with_kg(state: QAuraState, config: RunnableConfig | None = No
     return result
 
 
+def _run_namespace(state: QAuraState, config: RunnableConfig | None) -> str:
+    """Scope defect/heal KG nodes per run AND per healing iteration —
+    anomaly IDs restart at ANOM-001 on every execution pass."""
+    thread_id = ((config or {}).get("configurable") or {}).get("thread_id", "unknown_run")
+    return f"{thread_id}:i{state.get('healing_iterations', 0)}"
+
+
 async def _execution_with_kg(state: QAuraState, config: RunnableConfig | None = None) -> dict:
     result = await execution_agent_node(state, config)
     anomalies = result.get("anomaly_reports", [])
     if anomalies:
         with _kg_lock:
-            graph_builder.build_from_anomalies(_kg, anomalies)
+            graph_builder.build_from_anomalies(_kg, anomalies, run_ns=_run_namespace(state, config))
             _kg.save(KG_PATH)
     return result
 
@@ -143,7 +151,7 @@ async def _self_healing_with_kg(state: QAuraState, config: RunnableConfig | None
     actions = result.get("healing_actions", [])
     if actions:
         with _kg_lock:
-            graph_builder.build_from_healing(_kg, actions)
+            graph_builder.build_from_healing(_kg, actions, run_ns=_run_namespace(state, config))
             _kg.save(KG_PATH)
     return result
 
@@ -252,6 +260,10 @@ async def run_pipeline_phase1(
     """Run the pipeline until the HITL interrupt. Returns (config, final_state)."""
     config = {"configurable": {"thread_id": thread_id}}
     initial_state = get_initial_state(requirements_path)
+
+    removed = reset_tests_dir()
+    if removed:
+        _logger.info("Cleared %d stale test file(s) from tests/", removed)
 
     _logger.info("Starting Phase 1")
     async for event in graph.astream(

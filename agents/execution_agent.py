@@ -43,7 +43,10 @@ PHASE 1 — TOOL CALLS (you MUST call tools before producing your final answer):
    - Pass 'tests/' to run the entire suite, or 'tests/<filename>.py' for individual files.
    - Prioritize high-risk components first when running individually.
 
-3. Read and analyze the raw pytest output from each run.
+3. `run_pytest_suite` returns JSON with a `deterministic_summary` (exact measured
+   counts, durations, per-file results, and the list of failed tests) plus a
+   `raw_output_tail` with tracebacks. Use the summary for all numbers; use the
+   raw output only to understand WHY tests failed.
 
 4. After execution, call `query_test_history` for each test file that appeared in the run.
    Use the historical data to enrich your analysis — compare current results against past
@@ -57,17 +60,20 @@ Categorize each failure from the pytest logs:
 - TEST_SCRIPT_DECAY: ElementNotFoundException, stale locator, import error in test file
 
 SCORING RULES (use these to populate the output fields):
-- total_tests / passed / failed / blocked: extract from pytest's summary line
-  (e.g., "21 passed, 7 failed in 0.22s"). Tests that error during collection = blocked.
-- execution_duration_ms: extract total time from pytest output, convert to milliseconds.
-- critical_path_success: TRUE if all components marked High-risk have >50% pass rate.
-  FALSE if any High-risk component has majority failures or is entirely blocked.
-- overall_confidence: (passed / total_tests) as a float between 0.0 and 1.0.
-  If no tests ran, use 0.0.
-- component_scores: for each component, compute (passed_in_component / total_in_component).
-  Group tests by their target component from the file names or test plan.
+- total_tests / passed / failed / blocked / execution_duration_ms: copy VERBATIM from
+  the `deterministic_summary.totals` returned by run_pytest_suite. These are measured
+  values — never estimate, recompute, or read them from the raw text output.
+  If deterministic_summary is null (collection crash), all tests are blocked.
+- critical_path_success: TRUE if all components marked High-risk have >50% pass rate
+  (use `deterministic_summary.per_file` counts). FALSE if any High-risk component has
+  majority failures or is entirely blocked.
+- overall_confidence: (passed / total_tests) from the deterministic totals, as a float
+  between 0.0 and 1.0. If no tests ran, use 0.0.
+- component_scores: for each component, compute (passed_in_component / total_in_component)
+  from `deterministic_summary.per_file`, mapping files to components via the test plan.
 - identified_gaps: list components from the test plan that have NO test files present,
   or components where all tests are blocked/errored.
+- duration_ms per test file (execution_memory): use `deterministic_summary.per_file[...].duration_ms`.
 - flaky_flag_raised: set to true if query_test_history returned a flakiness_rate > 0.1 for this test,
   OR if the test passed in a previous run but failed now without code changes.
 - retry_count: always 0 (no retry configured in this environment).

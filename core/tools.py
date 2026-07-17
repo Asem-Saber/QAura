@@ -1,12 +1,13 @@
 import os
 import ast
 import importlib.util
-import re
 import json
-import glob
 import subprocess
+import sys
+import tempfile
 import urllib.request
 import urllib.error
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain_core.tools import tool
@@ -26,6 +27,36 @@ CHROMA_PATH = str(ROOT / "codebase_db")
 TESTS_DIR = ROOT / "tests"
 TEMPLATES_DIR = ROOT / "demo_app" / "templates"
 REPORTS_DIR = ROOT / "reports"
+
+
+def _resolve_in_root(file_path: str) -> Path | None:
+    """Resolve a path against ROOT, rejecting anything that escapes it.
+
+    Tool inputs are LLM-generated from untrusted context (logs, test output),
+    so absolute paths and ../ traversal must never reach the filesystem.
+    """
+    try:
+        resolved = (ROOT / file_path).resolve()
+    except (OSError, ValueError):
+        return None
+    if resolved == ROOT or not resolved.is_relative_to(ROOT):
+        return None
+    return resolved
+
+
+def reset_tests_dir() -> int:
+    """Delete generated test files from tests/ so a new run starts clean.
+
+    Returns the number of files removed. Leftover files from previous runs
+    would otherwise be executed alongside (or instead of) the current run's.
+    """
+    if not TESTS_DIR.exists():
+        return 0
+    removed = 0
+    for py_file in TESTS_DIR.glob("*.py"):
+        py_file.unlink()
+        removed += 1
+    return removed
 
 
 @tool
@@ -158,29 +189,116 @@ def write_test_file(file_name: str, test_code: str) -> str:
         return f"Failed to write {path}: {e}"
 
 
+def _parse_junit_xml(xml_path: Path) -> dict | None:
+    """Parse a pytest JUnit XML report into deterministic run metrics."""
+    try:
+        root = ET.parse(xml_path).getroot()
+    except (ET.ParseError, FileNotFoundError, OSError):
+        return None
+
+    totals = {"total_tests": 0, "passed": 0, "failed": 0, "blocked": 0, "duration_ms": 0}
+    per_file: dict[str, dict] = {}
+    failed_tests: list[dict] = []
+
+    for case in root.iter("testcase"):
+        file_attr = case.get("file")
+        if file_attr:
+            file_key = Path(file_attr).as_posix()
+        else:
+            # xunit2 omits `file`; classname 'tests.test_auth[.TestX]' — first
+            # two dotted segments are the module path in this project layout.
+            parts = case.get("classname", "unknown").split(".")
+            file_key = "/".join(parts[:2]) + ".py" if len(parts) >= 2 else parts[0]
+
+        duration_ms = int(float(case.get("time", "0")) * 1000)
+        if case.find("failure") is not None:
+            status = "failed"
+        elif case.find("error") is not None or case.find("skipped") is not None:
+            status = "blocked"
+        else:
+            status = "passed"
+
+        totals["total_tests"] += 1
+        totals[status] += 1
+        totals["duration_ms"] += duration_ms
+
+        bucket = per_file.setdefault(
+            file_key, {"total": 0, "passed": 0, "failed": 0, "blocked": 0, "duration_ms": 0}
+        )
+        bucket["total"] += 1
+        bucket[status] += 1
+        bucket["duration_ms"] += duration_ms
+
+        if status != "passed":
+            problem = case.find("failure")
+            if problem is None:
+                problem = case.find("error")
+            message = (problem.get("message", "") if problem is not None else "")[:500]
+            failed_tests.append({
+                "test": f"{file_key}::{case.get('name', '?')}",
+                "status": status,
+                "message": message,
+            })
+
+    return {
+        "totals": totals,
+        "per_file": per_file,
+        "failed_tests": failed_tests,
+    }
+
+
 @tool
 def run_pytest_suite(target: str) -> str:
-    """Run pytest on the given target (file or directory) and return the output.
+    """Run pytest on the given target (file or directory) and return the results.
+
+    Returns a JSON object with a `deterministic_summary` (exact counts, durations,
+    and per-file results parsed from pytest's machine-readable report — use these
+    numbers verbatim, do NOT re-derive them from the raw output) plus the tail of
+    the raw pytest output for failure analysis.
 
     Args:
         target: Path to the test file or directory, relative to project root (e.g. 'tests/' or 'tests/test_auth.py').
     """
-    path = ROOT / target
+    path = _resolve_in_root(target)
+    if path is None:
+        return f"Refused: '{target}' resolves outside the project root."
+
+    junit_fd, junit_name = tempfile.mkstemp(suffix=".xml", prefix="qaura_junit_")
+    os.close(junit_fd)
+    junit_path = Path(junit_name)
     try:
         result = subprocess.run(
-            ["python", "-m", "pytest", str(path), "-v", "--tb=short"], 
-            capture_output=True, 
+            [
+                sys.executable, "-m", "pytest", str(path), "-v", "--tb=short",
+                f"--junitxml={junit_path}", "-o", "junit_family=xunit1",
+            ],
+            capture_output=True,
             text=True,
-            timeout=120
+            timeout=120,
+            cwd=str(ROOT),
         )
-        output = result.stdout
+        raw_output = result.stdout
         if result.stderr:
-            output += f"\nSTDERR:\n{result.stderr}"
-        return output
+            raw_output += f"\nSTDERR:\n{result.stderr}"
+
+        summary = _parse_junit_xml(junit_path)
+        return json.dumps({
+            "deterministic_summary": summary,
+            "note": (
+                "deterministic_summary contains the exact measured counts and "
+                "durations — copy them verbatim into your output."
+                if summary else
+                "No machine-readable report was produced (likely a collection "
+                "crash) — treat all tests as blocked and see raw_output_tail."
+            ),
+            "raw_output_tail": raw_output[-6000:],
+        }, indent=2)
     except subprocess.TimeoutExpired:
         return f"Execution of {target} timed out after 120 seconds."
     except Exception as e:
         return f"Failed to run pytest: {e}"
+    finally:
+        junit_path.unlink(missing_ok=True)
 
 @tool
 def check_environment_health() -> str:
@@ -202,7 +320,7 @@ def check_environment_health() -> str:
     except Exception:
         pass
     
-    return str({
+    return json.dumps({
         "runners_available": True,
         "db_connected": db_connected,
         "server_status": server_status,
@@ -245,7 +363,9 @@ def read_test_file(file_path: str) -> str:
     Args:
         file_path: Path relative to project root (e.g. 'tests/test_auth.py').
     """
-    path = ROOT / file_path
+    path = _resolve_in_root(file_path)
+    if path is None:
+        return f"Refused: '{file_path}' resolves outside the project root."
     try:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
@@ -301,7 +421,9 @@ def read_source_file(file_path: str) -> str:
     Args:
         file_path: Relative path from project root (e.g. 'demo_app/auth.py' or 'tests/test_auth.py').
     """
-    path = ROOT / file_path
+    path = _resolve_in_root(file_path)
+    if path is None:
+        return f"Refused: '{file_path}' resolves outside the project root."
     try:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
@@ -323,7 +445,9 @@ def patch_file(file_path: str, old_code: str, new_code: str) -> str:
         old_code: The exact code snippet to replace (copy-paste from the file).
         new_code: The corrected code to insert in its place.
     """
-    path = ROOT / file_path
+    path = _resolve_in_root(file_path)
+    if path is None:
+        return f"FAIL: '{file_path}' resolves outside the project root."
     try:
         content = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -354,11 +478,13 @@ def run_single_test(test_path: str) -> str:
     Args:
         test_path: Relative path to the test file (e.g. 'tests/test_auth.py').
     """
-    path = ROOT / test_path
+    path = _resolve_in_root(test_path)
+    if path is None:
+        return f"Refused: '{test_path}' resolves outside the project root."
     try:
         result = subprocess.run(
-            ["python", "-m", "pytest", str(path), "-v", "--tb=short"],
-            capture_output=True, text=True, timeout=60
+            [sys.executable, "-m", "pytest", str(path), "-v", "--tb=short"],
+            capture_output=True, text=True, timeout=60, cwd=str(ROOT),
         )
         output = result.stdout
         if result.stderr:

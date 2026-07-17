@@ -83,18 +83,33 @@ def build_from_generated_tests(
             graph.add_edge(f"test:{test_path}", comp_id, "COVERS")
 
 
+def _scoped_id(prefix: str, run_ns: str, anomaly_id: str) -> str:
+    """Node ID for run-scoped entities.
+
+    Anomaly IDs restart at ANOM-001 every execution pass, so without the
+    run namespace each run/iteration would overwrite the previous one's
+    defect and healing history.
+    """
+    if run_ns:
+        return f"{prefix}:{run_ns}:{anomaly_id}"
+    return f"{prefix}:{anomaly_id}"
+
+
 def build_from_anomalies(
     graph: DefectKnowledgeGraph,
     anomaly_reports: list[StructuredAnomalyReport],
+    run_ns: str = "",
 ) -> None:
     for anomaly in anomaly_reports:
         error_type = _extract_error_type(anomaly.correlated_stack_trace)
         pattern_key = f"{error_type}::{anomaly.affected_component}::{anomaly.classification}"
+        defect_id = _scoped_id("defect", run_ns, anomaly.anomaly_id)
 
         graph.add_node(
-            f"defect:{anomaly.anomaly_id}",
+            defect_id,
             "Defect",
             anomaly_id=anomaly.anomaly_id,
+            run_ns=run_ns,
             classification=anomaly.classification,
             root_cause=anomaly.root_cause_hypothesis,
             error_type=error_type,
@@ -103,37 +118,40 @@ def build_from_anomalies(
 
         comp_id = f"comp:{anomaly.affected_component}"
         if graph.get_node(comp_id):
-            graph.add_edge(f"defect:{anomaly.anomaly_id}", comp_id, "AFFECTS")
+            graph.add_edge(defect_id, comp_id, "AFFECTS")
 
         test_id = f"test:{anomaly.test_id}"
         if graph.get_node(test_id):
-            graph.add_edge(f"defect:{anomaly.anomaly_id}", test_id, "DETECTED_BY")
+            graph.add_edge(defect_id, test_id, "DETECTED_BY")
 
         existing_defects = graph.get_nodes_by_type("Defect")
         for existing_id, existing_attrs in existing_defects:
-            if existing_id == f"defect:{anomaly.anomaly_id}":
+            if existing_id == defect_id:
                 continue
             if existing_attrs.get("pattern_key") == pattern_key:
-                graph.add_edge(f"defect:{anomaly.anomaly_id}", existing_id, "HAS_PATTERN")
+                graph.add_edge(defect_id, existing_id, "HAS_PATTERN")
 
 
 def build_from_healing(
     graph: DefectKnowledgeGraph,
     healing_actions: list[HealingAction],
+    run_ns: str = "",
 ) -> None:
     for action in healing_actions:
+        heal_id = _scoped_id("heal", run_ns, action.anomaly_id)
         graph.add_node(
-            f"heal:{action.anomaly_id}",
+            heal_id,
             "HealingAction",
             anomaly_id=action.anomaly_id,
+            run_ns=run_ns,
             action_type=action.action_type,
             success=action.success,
             explanation=action.explanation,
         )
 
-        defect_id = f"defect:{action.anomaly_id}"
+        defect_id = _scoped_id("defect", run_ns, action.anomaly_id)
         if graph.get_node(defect_id):
-            graph.add_edge(f"heal:{action.anomaly_id}", defect_id, "FIXES")
+            graph.add_edge(heal_id, defect_id, "FIXES")
 
         if action.target_file:
             target_id = None
@@ -147,7 +165,7 @@ def build_from_healing(
                     target_id = candidate
 
             if target_id:
-                graph.add_edge(f"heal:{action.anomaly_id}", target_id, "MODIFIES")
+                graph.add_edge(heal_id, target_id, "MODIFIES")
 
 
 def _build_module_lookup(project_root: Path) -> dict[str, str]:

@@ -6,6 +6,10 @@ any combination of Playwright (browser automation) and lean-ctx
 """
 
 import os
+from contextlib import AsyncExitStack, asynccontextmanager
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
 
 
 def get_mcp_config(*, playwright: bool = False, leanctx: bool = True) -> dict:
@@ -36,3 +40,23 @@ def get_mcp_config(*, playwright: bool = False, leanctx: bool = True) -> dict:
         }
 
     return config
+
+
+@asynccontextmanager
+async def open_mcp_tools(*, playwright: bool = False, leanctx: bool = True):
+    """Yield LangChain tools backed by MCP sessions that live for the block.
+
+    langchain-mcp-adapters >=0.1 removed context-manager support on
+    MultiServerMCPClient, and its `get_tools()` opens a fresh session per
+    tool CALL — which would break stateful Playwright flows (navigate, then
+    snapshot the same page). So we hold one session per server for the
+    duration of the agent node and load tools from those sessions.
+    """
+    config = get_mcp_config(playwright=playwright, leanctx=leanctx)
+    client = MultiServerMCPClient(config)
+    async with AsyncExitStack() as stack:
+        tools = []
+        for server_name in config:
+            session = await stack.enter_async_context(client.session(server_name))
+            tools.extend(await load_mcp_tools(session))
+        yield tools

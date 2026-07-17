@@ -3,10 +3,9 @@ import logging
 from dotenv import load_dotenv
 from core.state import QAuraState, IntegrationTestOutput
 from core.tools import INTEGRATION_TOOLS
-from core.mcp_config import get_mcp_config
+from core.mcp_config import open_mcp_tools
 from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
-from langchain_mcp_adapters.client import MultiServerMCPClient
 from typing import Annotated
 from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
@@ -206,8 +205,7 @@ async def integration_gen_node(state: QAuraState, config: RunnableConfig | None 
         risk_areas=test_plan.risk_areas,
     )
 
-    async with MultiServerMCPClient(get_mcp_config(leanctx=True)) as client:
-        leanctx_tools = await client.get_tools()
+    async with open_mcp_tools(leanctx=True) as leanctx_tools:
         all_tools = INTEGRATION_TOOLS + leanctx_tools
         agent_subgraph = _build_agent_subgraph(all_tools)
 

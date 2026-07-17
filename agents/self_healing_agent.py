@@ -3,10 +3,9 @@ import logging
 from dotenv import load_dotenv
 from core.state import QAuraState, SelfHealingOutput
 from core.tools import SELF_HEALING_TOOLS
-from core.mcp_config import get_mcp_config
+from core.mcp_config import open_mcp_tools
 from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
-from langchain_mcp_adapters.client import MultiServerMCPClient
 from typing import Annotated
 from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
@@ -182,8 +181,7 @@ async def self_healing_agent_node(state: QAuraState, config: RunnableConfig | No
         risk_areas=", ".join(test_plan.risk_areas) if test_plan else "N/A",
     )
 
-    async with MultiServerMCPClient(get_mcp_config(playwright=True, leanctx=True)) as client:
-        mcp_tools = await client.get_tools()
+    async with open_mcp_tools(playwright=True, leanctx=True) as mcp_tools:
         all_tools = SELF_HEALING_TOOLS + mcp_tools
         agent_subgraph = _build_agent_subgraph(all_tools)
 

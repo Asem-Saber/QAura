@@ -3,10 +3,9 @@ import logging
 from dotenv import load_dotenv
 from core.tools import PLANNING_TOOLS
 from core.state import QAuraState, TestPlan
-from core.mcp_config import get_mcp_config
+from core.mcp_config import open_mcp_tools
 from core.output_parsing import robust_parse
 from langchain_openai import ChatOpenAI
-from langchain_mcp_adapters.client import MultiServerMCPClient
 from typing import Annotated
 from typing_extensions import TypedDict
 from langchain_core.output_parsers import PydanticOutputParser
@@ -127,8 +126,7 @@ async def test_architect_node(state: QAuraState, config: RunnableConfig | None =
     feedback_msgs = [m for m in state.get("messages", []) if isinstance(m, tuple) and m[0] == "user"]
     invoke_msgs.extend(feedback_msgs)
 
-    async with MultiServerMCPClient(get_mcp_config(leanctx=True)) as client:
-        leanctx_tools = await client.get_tools()
+    async with open_mcp_tools(leanctx=True) as leanctx_tools:
         all_tools = PLANNING_TOOLS + leanctx_tools
         agent_subgraph = _build_agent_subgraph(all_tools)
 

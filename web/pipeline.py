@@ -1,10 +1,12 @@
 import asyncio
+import logging
 import time
 from datetime import datetime, timezone
 
 from langgraph.types import Command
 
 from core.graph import graph, get_initial_state
+from core.tools import reset_tests_dir
 
 
 class PipelineEvent:
@@ -17,7 +19,10 @@ class PipelineManager:
     def __init__(self):
         self._run_id: str | None = None
         self._config: dict | None = None
-        self._queue: asyncio.Queue[PipelineEvent | None] = asyncio.Queue()
+        # Full event log for the current run. SSE consumers each keep their own
+        # cursor into it, so multiple tabs and reconnects all see every event.
+        self._events: list[PipelineEvent] = []
+        self._new_event: asyncio.Event = asyncio.Event()
         self._approval_event: asyncio.Event = asyncio.Event()
         self._approval_data: dict = {}
         self._running: bool = False
@@ -49,13 +54,15 @@ class PipelineManager:
         run_id = f"qaura_run_{int(time.time())}"
         self._run_id = run_id
         self._config = {"configurable": {"thread_id": run_id}}
-        self._queue = asyncio.Queue()
+        self._events = []
+        self._new_event = asyncio.Event()
         self._approval_event = asyncio.Event()
         self._approval_data = {}
         self._running = True
         self._phase = "initializing"
         self._agent_logs = {}
 
+        reset_tests_dir()
         initial_state = get_initial_state(requirements_path)
         self._task = asyncio.create_task(self._run(initial_state))
         return run_id
@@ -69,14 +76,18 @@ class PipelineManager:
             ):
                 self._process_stream_event(event)
 
-            state = graph.get_state(self._config)
-            state_values = state.values
+            # The graph can pause at the HITL interrupt more than once: plan
+            # rejection loops back through the architect, and a RE_PLAN healing
+            # decision re-enters planning. Keep resuming until it actually ends.
+            while True:
+                state = graph.get_state(self._config)
+                if not state.next:
+                    break
 
-            if state_values.get("test_plan") and state.next:
                 self._phase = "awaiting_approval"
-                plan = state_values["test_plan"]
+                plan = state.values.get("test_plan")
                 plan_data = plan.model_dump() if hasattr(plan, "model_dump") else plan
-                self._push("plan_ready", {"plan": plan_data})
+                self._push("plan_ready", {"plan": plan_data or {}})
 
                 self._approval_event.clear()
                 await self._approval_event.wait()
@@ -90,7 +101,7 @@ class PipelineManager:
                     self._push("agent_log", {
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "agent": "human_approval",
-                        "message": "Plan rejected by operator.",
+                        "message": "Plan rejected by operator. Architect is revising the plan.",
                         "tool_calls": [],
                     })
 
@@ -117,6 +128,7 @@ class PipelineManager:
                 "qa_report": self._serialize(final_state.get("qa_report")),
             })
         except Exception as e:
+            logging.getLogger("qaura.pipeline").exception("Pipeline run %s failed", self._run_id)
             self._phase = "errored"
             self._current_agent = None
             self._push("agent_log", {
@@ -128,7 +140,7 @@ class PipelineManager:
             self._push("run_complete", {})
         finally:
             self._running = False
-            await self._queue.put(None)
+            self._new_event.set()  # wake streams so they can observe completion
 
     def _process_stream_event(self, event):
         namespace, update = event
@@ -205,7 +217,8 @@ class PipelineManager:
                 })
 
     def _push(self, event_type: str, data: dict):
-        self._queue.put_nowait(PipelineEvent(event_type, data))
+        self._events.append(PipelineEvent(event_type, data))
+        self._new_event.set()
 
     def _serialize(self, obj):
         if obj is None:
@@ -215,13 +228,24 @@ class PipelineManager:
         return obj
 
     async def get_event_stream(self, run_id: str):
+        """Replay the run's event log from the start, then follow new events.
+
+        Cursor-based so concurrent tabs and late/reconnecting clients each get
+        the complete stream instead of competing for items in a shared queue.
+        """
         if run_id != self._run_id:
             return
+        cursor = 0
         while True:
-            event = await self._queue.get()
-            if event is None:
+            while cursor < len(self._events):
+                yield self._events[cursor]
+                cursor += 1
+            if not self._running:
                 break
-            yield event
+            self._new_event.clear()
+            if cursor < len(self._events):
+                continue  # pushed between the drain and the clear
+            await self._new_event.wait()
 
     def get_agent_logs(self, agent_name: str) -> list[dict]:
         return self._agent_logs.get(agent_name, [])

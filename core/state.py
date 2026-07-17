@@ -158,17 +158,21 @@ class QAuraState(TypedDict):
     test_plan: TestPlan | None
     plan_approved: bool
     messages: Annotated[list, operator.add]
-    unit_tests: Annotated[List[GeneratedTest], operator.add]
-    integration_tests: Annotated[List[GeneratedTest], operator.add]
-    e2e_tests: Annotated[List[GeneratedTest], operator.add]
+    # Last-value semantics: each generator/execution pass replaces its own list.
+    # Appending here would make healing-loop iterations re-process stale
+    # anomalies and duplicate regenerated tests.
+    unit_tests: List[GeneratedTest]
+    integration_tests: List[GeneratedTest]
+    e2e_tests: List[GeneratedTest]
     environment_status: dict
     execution_summary: ExecutionResultsSummary | None
     coverage_assessment: CoverageConfidenceAssessment | None
-    anomaly_reports: Annotated[List[StructuredAnomalyReport], operator.add]
-    execution_memory: Annotated[List[ExecutionMemoryUpdate], operator.add]
+    anomaly_reports: List[StructuredAnomalyReport]
     qa_report: QAReport | None
     report_path: str
-    defect_analyses: Annotated[List[DefectAnalysis], operator.add]
+    defect_analyses: List[DefectAnalysis]
+    # Append-only run history (nothing downstream re-processes these).
+    execution_memory: Annotated[List[ExecutionMemoryUpdate], operator.add]
     healing_actions: Annotated[List[HealingAction], operator.add]
     loop_decision: str
     healing_iterations: int
